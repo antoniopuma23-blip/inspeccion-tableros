@@ -85,6 +85,15 @@
     </div>
   </article>
 </section>
+
+<article class="panel" style="margin-top:16px">
+  <header class="panel-cab">
+    <h2>Sensores ambientales</h2>
+    <span class="etiqueta">DHT22 · MQ-2 · MQ-7 · PIR · piezoeléctrico · LDR</span>
+    <a class="der btn btn-chico" href="/ambiente">Gráficas y eventos</a>
+  </header>
+  <div class="panel-cuerpo"><div class="sensores" id="sensores"></div></div>
+</article>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/termico.js') }}?v={{ version }}"></script>

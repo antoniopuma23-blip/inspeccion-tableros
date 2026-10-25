@@ -33,7 +33,12 @@ def reloj():
 def config_temporal(tmp_path):
     from robot.config import Configuracion
 
-    return Configuracion(sobrescribir={"datos": {"directorio": str(tmp_path / "data")}})
+    return Configuracion(sobrescribir={
+        "datos": {"directorio": str(tmp_path / "data")},
+        # Pruebas rápidas: sin calentamiento de los MQ y lectura a 10 Hz
+        "sensores": {"calentamiento_s": 0, "periodo_s": 0.1},
+        "control_xbox": {"habilitado_pi": False},
+    })
 
 
 @pytest.fixture

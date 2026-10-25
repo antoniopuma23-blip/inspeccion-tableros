@@ -77,6 +77,31 @@ class DriverCamaraVisible(Driver):
         """Devuelve un cuadro BGR (alto, ancho, 3) uint8 o None."""
 
 
+class DriverSensoresAmbiente(Driver):
+    """Sensores ambientales de TechRoach (DHT22, MQ-2, MQ-7, PIR, piezo, LDR) y salidas de alarma.
+
+    :meth:`leer` devuelve un diccionario con las lecturas crudas disponibles
+    (las que falten valen ``None``)::
+
+        v_mq2, v_mq7     voltaje en la salida AO del módulo (V, ya sin divisor)
+        mq2_digital,     salida DO del módulo (True = sobre el umbral); solo
+        mq7_digital      si no hay ADS1115
+        v_ldr            voltaje del divisor del LDR (V)
+        v_bateria        voltaje del paquete LiPo (V)
+        temperatura      °C (DHT22)
+        humedad          % HR (DHT22)
+        pir              presencia (bool)
+        impactos         contador acumulado de impactos (int)
+    """
+
+    @abstractmethod
+    def leer(self) -> dict:
+        """Lecturas crudas de todos los sensores."""
+
+    def salidas(self, buzzer: bool = False, led_alarma: bool = False, iluminacion: bool = False) -> None:
+        """Zumbador, LED de alarma e iluminación propia."""
+
+
 # ----------------------------------------------------------------------------
 #  Implementaciones nulas (componente ausente o con falla)
 # ----------------------------------------------------------------------------
@@ -115,6 +140,17 @@ class CamaraTermicaNula(DriverCamaraTermica):
 
     def leer_cuadro(self) -> np.ndarray | None:
         return None
+
+
+class SensoresAmbienteNulos(DriverSensoresAmbiente):
+    nombre = "Sensores ambientales no disponibles"
+    disponible = False
+
+    def __init__(self, detalle: str = ""):
+        self.detalle = detalle
+
+    def leer(self) -> dict:
+        return {}
 
 
 class CamaraVisibleNula(DriverCamaraVisible):

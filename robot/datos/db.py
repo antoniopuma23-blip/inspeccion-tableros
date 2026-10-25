@@ -4,8 +4,10 @@ Tablas:
 
 * ``tableros``: un registro por tablero eléctrico (identificado por su código).
 * ``inspecciones``: cada hallazgo capturado, con temperaturas, ΔT,
-  clasificación, notas, rutas de imágenes y la matriz térmica completa
-  (32×24 float32 guardada como BLOB, ~3 KB).
+  clasificación, notas, rutas de imágenes, la matriz térmica completa
+  (32×24 float32 guardada como BLOB, ~3 KB) y las condiciones ambientales
+  medidas por los sensores de TechRoach (temperatura, humedad, gases).
+* ``eventos``: alarmas de gas, impactos, paros, watchdog, etc.
 
 Se abre una conexión por operación (``check_same_thread`` no es problema y
 SQLite maneja el bloqueo entre hilos); el modo WAL permite leer mientras se
@@ -56,12 +58,29 @@ CREATE TABLE IF NOT EXISTS inspecciones (
     simulacion      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_insp_tablero ON inspecciones(tablero_id, fecha);
+CREATE TABLE IF NOT EXISTS eventos (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha    TEXT NOT NULL,
+    tipo     TEXT NOT NULL,
+    nivel    TEXT NOT NULL,
+    mensaje  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eventos_fecha ON eventos(fecha);
 """
+
+# Columnas agregadas después de la primera versión (migración automática)
+COLUMNAS_AMBIENTE = {
+    "t_ambiente": "REAL",
+    "humedad": "REAL",
+    "mq2_ppm": "REAL",
+    "mq7_ppm": "REAL",
+}
 
 _CAMPOS_LISTA = """i.id, i.fecha, i.t_max, i.t_min, i.t_media, i.t_referencia, i.modo_referencia,
     i.delta_t, i.nivel, i.clasificacion, i.emisividad, i.pos_max_fila, i.pos_max_col,
     i.ref_fila, i.ref_col, i.notas, i.img_visible, i.img_termica, i.img_fusion,
-    i.img_miniatura, i.img_mini_termica, i.simulacion, t.codigo AS tablero, t.ubicacion"""
+    i.img_miniatura, i.img_mini_termica, i.simulacion, i.t_ambiente, i.humedad, i.mq2_ppm,
+    i.mq7_ppm, t.codigo AS tablero, t.ubicacion"""
 
 
 class BaseDatos:
@@ -72,6 +91,10 @@ class BaseDatos:
         with self._conectar() as con:
             con.execute("PRAGMA journal_mode=WAL")
             con.executescript(ESQUEMA)
+            existentes = {f["name"] for f in con.execute("PRAGMA table_info(inspecciones)")}
+            for columna, tipo in COLUMNAS_AMBIENTE.items():
+                if columna not in existentes:
+                    con.execute(f"ALTER TABLE inspecciones ADD COLUMN {columna} {tipo}")
 
     @contextmanager
     def _conectar(self):
@@ -111,21 +134,25 @@ class BaseDatos:
     # ----------------------------------------------------------- inspecciones
     def insertar_inspeccion(self, tablero: str, analisis: dict, matriz: np.ndarray,
                             emisividad: float, notas: str = "", ubicacion: str = "",
-                            simulacion: bool = False, fecha: str | None = None) -> int:
+                            simulacion: bool = False, fecha: str | None = None,
+                            ambiente: dict | None = None) -> int:
         tablero_id = self.obtener_o_crear_tablero(tablero, ubicacion)
+        amb = ambiente or {}
         ref = analisis.get("punto_referencia") or [None, None]
         clasif = analisis["clasificacion"]
         with self._bloqueo_escritura, self._conectar() as con:
             cur = con.execute("""
                 INSERT INTO inspecciones (tablero_id, fecha, t_max, t_min, t_media, t_referencia,
                     modo_referencia, delta_t, nivel, clasificacion, emisividad, pos_max_fila,
-                    pos_max_col, ref_fila, ref_col, notas, matriz, simulacion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    pos_max_col, ref_fila, ref_col, notas, matriz, simulacion,
+                    t_ambiente, humedad, mq2_ppm, mq7_ppm)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                 tablero_id, fecha or datetime.now().isoformat(timespec="seconds"),
                 analisis["t_max"], analisis["t_min"], analisis["t_media"], analisis["t_referencia"],
                 analisis["modo_referencia"], analisis["delta_t"], clasif["nivel"], clasif["etiqueta"],
                 emisividad, analisis["pos_max"][0], analisis["pos_max"][1], ref[0], ref[1],
-                notas.strip(), np.asarray(matriz, np.float32).tobytes(), int(simulacion)))
+                notas.strip(), np.asarray(matriz, np.float32).tobytes(), int(simulacion),
+                amb.get("temperatura"), amb.get("humedad"), amb.get("mq2_ppm"), amb.get("mq7_ppm")))
             return int(cur.lastrowid)
 
     def actualizar_imagenes(self, id_insp: int, **rutas: str) -> None:
@@ -198,3 +225,19 @@ class BaseDatos:
             con.execute("""DELETE FROM tableros WHERE id NOT IN
                            (SELECT DISTINCT tablero_id FROM inspecciones)""")
         return d
+
+    # ---------------------------------------------------------------- eventos
+    def registrar_evento(self, tipo: str, nivel: str, mensaje: str, fecha: str | None = None) -> int:
+        with self._bloqueo_escritura, self._conectar() as con:
+            cur = con.execute("INSERT INTO eventos (fecha, tipo, nivel, mensaje) VALUES (?, ?, ?, ?)",
+                              (fecha or datetime.now().isoformat(timespec="seconds"), tipo, nivel, mensaje))
+            # Conserva solo los 5000 eventos más recientes
+            con.execute("DELETE FROM eventos WHERE id <= (SELECT MAX(id) FROM eventos) - 5000")
+            return int(cur.lastrowid)
+
+    def listar_eventos(self, limite: int = 200, tipo: str | None = None) -> list[dict]:
+        condicion, params = ("WHERE tipo LIKE ?", (tipo + "%",)) if tipo else ("", ())
+        with self._conectar() as con:
+            filas = con.execute(f"SELECT * FROM eventos {condicion} ORDER BY id DESC LIMIT ?",
+                                (*params, int(limite))).fetchall()
+        return [dict(f) for f in filas]

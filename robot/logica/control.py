@@ -127,6 +127,9 @@ class ControladorTraccion:
         self._hilo: threading.Thread | None = None
         self._activo = threading.Event()
         self.ultimo_paro = ""
+        # Restricciones de las respuestas automáticas (sensores ambientales)
+        self.factor_externo = 1.0          # humedad alta / presencia -> < 1
+        self.bloqueo: str | None = None    # None | "avance" (solo retroceso) | "total"
         self.motores.detener()  # Seguridad: motores en cero al crear el controlador
 
     # ------------------------------------------------------------- comandos
@@ -138,10 +141,33 @@ class ControladorTraccion:
             if not all(math.isfinite(v) for v in (x, y)):
                 return False
             izq, der = mezclar_skid(x, y, self.p.factor_giro)
-            vmax = self.p.velocidad_maxima
-            self.objetivo = [izq * vmax, der * vmax]
-            self.watchdog.alimentar()
+            self._fijar_objetivo(izq, der)
             return True
+
+    def comando_orugas(self, izq: float, der: float) -> bool:
+        """Comando directo por oruga en [-1, 1] (modo tanque del control Xbox)."""
+        with self._bloqueo:
+            if self.paro_emergencia_activo:
+                return False
+            if not all(math.isfinite(v) for v in (izq, der)):
+                return False
+            self._fijar_objetivo(_limitar(float(izq), -1.0, 1.0), _limitar(float(der), -1.0, 1.0))
+            return True
+
+    def _fijar_objetivo(self, izq: float, der: float) -> None:
+        vmax = self.p.velocidad_maxima
+        self.objetivo = [izq * vmax, der * vmax]
+        self.watchdog.alimentar()
+
+    def fijar_restricciones(self, factor: float = 1.0, bloqueo: str | None = None) -> None:
+        """Aplica las respuestas automáticas: factor de velocidad y bloqueo por gas."""
+        with self._bloqueo:
+            self.factor_externo = _limitar(float(factor), 0.0, 1.0)
+            self.bloqueo = bloqueo
+
+    def en_movimiento(self) -> bool:
+        return (any(abs(v) > 1e-3 for v in self.referencia)
+                or any(abs(v) > 0.02 for v in self.medida))
 
     def detener(self, motivo: str = "") -> None:
         """Paro inmediato (sin rampa). No bloquea comandos posteriores."""
@@ -217,11 +243,18 @@ class ControladorTraccion:
                     self.duty = [0.0, 0.0]
                 return
 
-            # 2) Rampa de aceleración y límite de velocidad
-            vmax = self.p.velocidad_maxima
+            # 2) Rampa de aceleración y límite de velocidad (reducido por las
+            #    respuestas automáticas: humedad alta, presencia de personas)
+            vmax = self.p.velocidad_maxima * self.factor_externo
             delta = self.p.aceleracion * dt
             for i in (0, 1):
                 objetivo = _limitar(self.objetivo[i], -vmax, vmax)
+                if self.bloqueo == "total":
+                    objetivo, self.referencia[i] = 0.0, 0.0
+                elif self.bloqueo == "avance":
+                    # Alarma de gas: solo se permite retroceder (sin rampa para frenar)
+                    objetivo = min(objetivo, 0.0)
+                    self.referencia[i] = min(self.referencia[i], 0.0)
                 self.referencia[i] = aplicar_rampa(self.referencia[i], objetivo, delta)
 
             # 3) Ciclo de trabajo: prealimentación + PI
@@ -290,6 +323,8 @@ class ControladorTraccion:
                 "paro_emergencia": self.paro_emergencia_activo,
                 "lazo_cerrado": self.p.lazo_cerrado and self.encoders.disponible,
                 "velocidad_maxima": self.p.velocidad_maxima,
+                "factor_velocidad": round(self.factor_externo, 2),
+                "bloqueo": self.bloqueo,
                 "ultimo_paro": self.ultimo_paro,
             }
 

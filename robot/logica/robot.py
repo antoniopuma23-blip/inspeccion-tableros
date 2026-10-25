@@ -8,11 +8,14 @@ Hilo                   Frecuencia    Función
 control-traccion       50 Hz         Watchdog, rampa, PI y PWM de los motores
 camara-termica         4 Hz          Lectura MLX90640, emisividad, estadísticas
 camara-visible         10-15 fps     Captura de cuadros (JPEG bajo demanda)
+sensores               2 Hz          Sensores de TechRoach y respuestas automáticas
 estado                 2 Hz          CPU, temperatura, batería, velocidades
+control-xbox           20 Hz         Control Xbox conectado a la Pi (opcional)
 =====================  ============  ==============================================
 
 La capa web se suscribe a los eventos (``termico``, ``estado``,
-``seguridad``) mediante :meth:`Robot.suscribir` y los reenvía por Socket.IO.
+``seguridad``, ``ambiente``) mediante :meth:`Robot.suscribir` y los reenvía
+por Socket.IO.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -31,10 +34,12 @@ import numpy as np
 from ..config import Configuracion, modo_simulacion
 from ..datos.db import BaseDatos
 from ..datos.reporte_pdf import generar_reporte
+from ..drivers.control_xbox import ControlXboxEvdev
 from ..drivers.esp32_uart import Esp32Uart
 from ..drivers.fabrica import crear_drivers, cuentas_por_vuelta
 from ..drivers.sistema import MonitorSistema
 from . import imagen_termica as imagen
+from .ambiente import ALARMA, ProcesadorAmbiente, r0_desde_rs, rs_desde_voltaje
 from .analisis_termico import (Umbrales, analizar, corregir_emisividad, estadisticas,
                                validar_matriz)
 from .bateria import nivel_alerta, porcentaje_lipo
@@ -96,9 +101,18 @@ class Robot:
         self.espectadores_video = 0
         self._ultimo_pedido_video = 0.0
 
+        # Sensores ambientales de TechRoach
+        self.procesador = ProcesadorAmbiente(self._cfg_sensores(), cfg.seccion("respuestas"))
+        self.ambiente: dict = self.procesador.estado.a_dict()
+        self.historial_ambiente: deque = deque(maxlen=600)     # 10 min a 1 muestra/s
+        self._voltajes_mq: dict[str, deque] = {"mq2": deque(maxlen=20), "mq7": deque(maxlen=20)}
+        self.ultimo_tablero: str | None = None
+        self.ultima_ubicacion = ""
+
         self.clientes = 0
         self.bateria_v: float | None = None
         self.esp32: Esp32Uart | None = None
+        self.xbox: ControlXboxEvdev | None = None
         self._activo = threading.Event()
         self._hilos: list[threading.Thread] = []
         self._cerrado = False
@@ -119,8 +133,15 @@ class Robot:
     def _evento_seguridad(self, tipo: str, mensaje: str) -> None:
         if tipo == "paro" and self.esp32:
             self.esp32.enviar({"t": "paro"})
+        self.registrar_evento(tipo, "alarma" if tipo in ("paro", "watchdog") else "info", mensaje)
         self._publicar("seguridad", {"tipo": tipo, "mensaje": mensaje,
                                      "hora": datetime.now().strftime("%H:%M:%S")})
+
+    def registrar_evento(self, tipo: str, nivel: str, mensaje: str) -> None:
+        try:
+            self.db.registrar_evento(tipo, nivel, mensaje)
+        except Exception:
+            log.exception("No se pudo registrar el evento")
 
     # ------------------------------------------------------------ ciclo de vida
     def iniciar(self) -> None:
@@ -128,12 +149,15 @@ class Robot:
         self.control.iniciar()
         for nombre, objetivo in (("camara-termica", self._bucle_termico),
                                  ("camara-visible", self._bucle_visible),
+                                 ("sensores", self._bucle_sensores),
                                  ("estado", self._bucle_estado)):
             hilo = threading.Thread(target=objetivo, name=nombre, daemon=True)
             hilo.start()
             self._hilos.append(hilo)
         if self.cfg.get("esp32.habilitado", False):
             self._iniciar_esp32()
+        if self.cfg.get("control_xbox.habilitado_pi", True):
+            self._iniciar_xbox()
         log.info("Robot iniciado (%s)", "SIMULACIÓN" if self.simulacion else "hardware real")
 
     def cerrar(self) -> None:
@@ -151,6 +175,8 @@ class Robot:
             self._cond_visible.notify_all()
         for hilo in self._hilos:
             hilo.join(timeout=1.5)
+        if self.xbox:
+            self.xbox.detener()
         if self.esp32:
             self.esp32.detener()
         self.drivers.cerrar()
@@ -188,7 +214,7 @@ class Robot:
                 continue
             ct = self.cfg.seccion("camara_termica")
             matriz = corregir_emisividad(cuadro, float(ct.get("emisividad", 0.95)),
-                                         float(ct.get("temp_reflejada_c", 25.0)))
+                                         self.temperatura_reflejada())
             est = estadisticas(matriz)
             ahora = time.monotonic()
             if t_previo is not None:
@@ -205,6 +231,14 @@ class Robot:
                 "t_mediana": round(est["t_mediana"], 1), "pos_max": est["pos_max"],
                 "fps": round(self._fps_termico, 1),
             })
+
+    def temperatura_reflejada(self) -> float:
+        """Temperatura reflejada: la del DHT22 si está habilitado y hay lectura."""
+        ct = self.cfg.seccion("camara_termica")
+        t_dht = self.ambiente.get("temperatura")
+        if ct.get("usar_dht22_como_reflejada", True) and t_dht is not None:
+            return float(t_dht)
+        return float(ct.get("temp_reflejada_c", 25.0))
 
     def matriz_termica(self) -> np.ndarray | None:
         with self._bloqueo_termico:
@@ -277,11 +311,11 @@ class Robot:
             time.sleep(0.5)
 
     def _leer_bateria(self) -> float | None:
+        # 1) ADS1115 (canal A3)  2) ESP32 opcional
+        if self.ambiente.get("bateria_v") is not None:
+            return self.ambiente["bateria_v"]
         if self.esp32 and self.esp32.conectado and self.bateria_v is not None:
             return self.bateria_v
-        if self.drivers.bateria_sim is not None:
-            carga = sum(abs(d) for d in self.drivers.motores.ultimo_duty) / 2
-            return self.drivers.bateria_sim.voltaje(carga)
         return None
 
     def estado(self) -> dict:
@@ -300,6 +334,8 @@ class Robot:
             "motores_ok": self.drivers.motores.disponible,
             "simulacion": self.simulacion,
             "esp32": self.esp32.estado() if self.esp32 else None,
+            "ambiente": self.ambiente,
+            "xbox_pi": self.xbox.estado() if self.xbox else None,
             "hora": datetime.now().strftime("%H:%M:%S"),
         }
 
@@ -310,6 +346,11 @@ class Robot:
             "componentes": {
                 "motores": d.motores.estado(), "encoders": d.encoders.estado(),
                 "camara_termica": d.termica.estado(), "camara_visible": d.visible.estado(),
+                "sensores_ambiente": d.ambiente.estado(),
+                "control_xbox": {"nombre": "Control Xbox en la Pi (evdev)",
+                                 "disponible": bool(self.xbox and self.xbox.conectado),
+                                 "detalle": (self.xbox.nombre or self.xbox.error or "Esperando control…")
+                                 if self.xbox else "Deshabilitado"},
             },
             "esp32": self.esp32.estado() if self.esp32 else {"habilitado": False},
             "parametros_control": self.control.parametros(),
@@ -317,6 +358,130 @@ class Robot:
             "watchdog_ms": round(self.control.watchdog.tiempo_limite * 1000),
             "expiraciones_watchdog": self.control.watchdog.expiraciones,
         }
+
+    # ------------------------------------------------------------ sensores ambientales
+    def _bucle_sensores(self) -> None:
+        t_historial = 0.0
+        parpadeo = False
+        while self._activo.is_set():
+            inicio = time.monotonic()
+            periodo = float(self.cfg.get("sensores.periodo_s", 0.5))
+            drv = self.drivers.ambiente
+            if not drv.disponible:
+                time.sleep(1.0)
+                continue
+            try:
+                crudo = drv.leer()
+            except Exception:
+                log.exception("Error leyendo sensores ambientales")
+                time.sleep(1.0)
+                continue
+            for gas, voltajes in self._voltajes_mq.items():
+                if crudo.get(f"v_{gas}") is not None:
+                    voltajes.append(crudo[f"v_{gas}"])
+
+            estado, eventos = self.procesador.procesar(crudo, self.control.en_movimiento())
+            self.control.fijar_restricciones(estado.factor_velocidad, estado.bloqueo)
+            for ev in eventos:
+                if ev.tipo.startswith("gas_") and ev.nivel == ALARMA:
+                    self.control.detener(f"Alarma de gas: {ev.mensaje}")
+                elif ev.tipo == "impacto" and self.cfg.get("respuestas.detener_por_impacto", True):
+                    self.control.detener("Impacto o caída detectado")
+                self.registrar_evento(ev.tipo, ev.nivel, ev.mensaje)
+                self._publicar("ambiente_evento", {"tipo": ev.tipo, "nivel": ev.nivel, "mensaje": ev.mensaje,
+                                                   "hora": datetime.now().strftime("%H:%M:%S")})
+
+            # Alerta visual/acústica: parpadeo a 1 Hz mientras dure la alarma
+            parpadeo = not parpadeo
+            ahora = time.monotonic()
+            impacto_reciente = estado.ultimo_impacto is not None and ahora - estado.ultimo_impacto < 2.0
+            alarma = estado.alarma or impacto_reciente
+            advertencia = "advertencia" in (estado.mq2_nivel, estado.mq7_nivel)
+            buzzer = bool(self.cfg.get("respuestas.buzzer", True)) and alarma and parpadeo
+            led = (alarma or advertencia) and parpadeo
+            try:
+                drv.salidas(buzzer=buzzer, led_alarma=led, iluminacion=estado.oscuro)
+            except Exception:
+                log.exception("Error en salidas de alarma")
+            amb = estado.a_dict()
+            amb["salidas"] = {"buzzer": buzzer, "led_alarma": led, "iluminacion": estado.oscuro}
+            amb["impacto_reciente"] = impacto_reciente
+            self.ambiente = amb
+
+            if ahora - t_historial >= 1.0:
+                t_historial = ahora
+                self.historial_ambiente.append({
+                    "t": round(time.time(), 1), "temperatura": amb["temperatura"],
+                    "humedad": amb["humedad"], "mq2_ppm": amb["mq2_ppm"], "mq7_ppm": amb["mq7_ppm"],
+                    "luz_pct": amb["luz_pct"]})
+            espera = periodo - (time.monotonic() - inicio)
+            if espera > 0:
+                time.sleep(espera)
+
+    def calibrar_gases(self) -> dict:
+        """Calcula R0 de los MQ con las últimas lecturas (el robot debe estar en aire limpio)."""
+        if self.ambiente.get("calentando"):
+            raise ValueError("Espera a que termine el calentamiento de los sensores de gas")
+        sens = self.cfg.seccion("sensores")
+        cambios = {}
+        for gas, voltajes in self._voltajes_mq.items():
+            g = sens[gas]
+            rs = [rs_desde_voltaje(v, float(g.get("vc", 5.0)), float(g.get("rl_kohm", 1.0))) for v in voltajes]
+            rs = [r for r in rs if r is not None]
+            if len(rs) < 5:
+                raise ValueError(f"No hay lecturas suficientes del {gas.upper()} (¿ADS1115 conectado?)")
+            r0 = r0_desde_rs(sum(rs) / len(rs), float(g.get("razon_aire_limpio", 9.83)))
+            cambios[f"sensores.{gas}.r0_kohm"] = round(r0, 3)
+        self.aplicar_configuracion(cambios)
+        for filtro in self.procesador.filtros.values():
+            filtro.reiniciar()
+        self.registrar_evento("calibracion", "info",
+                              "Calibración en aire limpio: " + ", ".join(f"{k.split('.')[1].upper()} R0 = {v} kΩ"
+                                                                       for k, v in cambios.items()))
+        return cambios
+
+    def inyectar_evento_simulado(self, evento: str) -> str:
+        """Provoca un evento en los sensores simulados (solo en modo simulación)."""
+        drv = self.drivers.ambiente
+        if not self.simulacion or not hasattr(drv, "inyectar"):
+            raise RuntimeError("Los eventos simulados solo existen en modo simulación")
+        drv.inyectar(evento)
+        descripcion = drv.EVENTOS[evento][1]
+        self.registrar_evento("simulacion", "info", f"Evento simulado: {descripcion}")
+        return descripcion
+
+    # ------------------------------------------------------------ control Xbox en la Pi
+    def _iniciar_xbox(self) -> None:
+        self.xbox = ControlXboxEvdev(
+            al_comando=self.comando_mando,
+            al_soltar=self.detener,
+            al_paro=self.paro_emergencia,
+            al_rearme=self.rearmar,
+            al_captura=self._captura_desde_mando,
+            al_desconectar=lambda: self.detener("Control Xbox desconectado"),
+            obtener_config=lambda: self.cfg.seccion("control_xbox"),
+            al_cambiar_modo=lambda modo: self.aplicar_configuracion({"control_xbox.modo": modo}),
+        )
+        self.xbox.iniciar()
+
+    def comando_mando(self, tipo: str, a: float, b: float) -> bool:
+        """Comando de un control: ``arcade`` (x, y) o ``tanque`` (oruga izq., oruga der.)."""
+        if tipo == "tanque":
+            return self.control.comando_orugas(a, b)
+        return self.control.comando(a, b)
+
+    def captura_rapida(self) -> dict:
+        """Captura con el último tablero usado (botón A del control)."""
+        if not self.ultimo_tablero:
+            raise ValueError("Para la captura rápida, primero captura un hallazgo con el nombre del tablero")
+        return self.capturar(self.ultimo_tablero, "Captura rápida desde el control Xbox", self.ultima_ubicacion)
+
+    def _captura_desde_mando(self) -> None:
+        try:
+            insp = self.captura_rapida()
+            self._publicar("aviso", {"tipo": "ok", "mensaje": f"Captura rápida INS-{insp['id']:05d} ({insp['tablero']})"})
+        except (ValueError, RuntimeError) as e:
+            self._publicar("aviso", {"tipo": "aviso", "mensaje": str(e)})
 
     # ------------------------------------------------------------ ESP32
     def _iniciar_esp32(self) -> None:
@@ -345,6 +510,13 @@ class Robot:
     def aplicar_configuracion(self, cambios: dict) -> dict:
         aplicados = self.cfg.actualizar(cambios)
         self.control.actualizar_parametros(**vars(parametros_desde_config(self.cfg)))
+        self.procesador.configurar(self._cfg_sensores(), self.cfg.seccion("respuestas"))
+        if "control_xbox.habilitado_pi" in aplicados:
+            if self.xbox and not self.cfg.get("control_xbox.habilitado_pi"):
+                self.xbox.detener()
+                self.xbox = None
+            elif not self.xbox and self.cfg.get("control_xbox.habilitado_pi"):
+                self._iniciar_xbox()
         if hasattr(self.drivers.termica, "superposicion"):
             self.drivers.termica.superposicion = self.cfg.seccion("superposicion")
         if "esp32.habilitado" in aplicados or "esp32.puerto" in aplicados:
@@ -354,7 +526,15 @@ class Robot:
                 self.bateria_v = None
             if self.cfg.get("esp32.habilitado"):
                 self._iniciar_esp32()
+        self._publicar("config", self.cfg.editables())
         return aplicados
+
+    def _cfg_sensores(self) -> dict:
+        cfg_sens = self.cfg.seccion("sensores")
+        if self.simulacion:
+            # En simulación el calentamiento de los MQ se acorta para la demostración
+            cfg_sens["calentamiento_s"] = min(float(cfg_sens.get("calentamiento_s", 180)), 10.0)
+        return cfg_sens
 
     def umbrales(self) -> Umbrales:
         a = self.cfg.seccion("analisis")
@@ -386,7 +566,8 @@ class Robot:
 
         emisividad = float(self.cfg.get("camara_termica.emisividad", 0.95))
         id_insp = self.db.insertar_inspeccion(tablero, analisis, matriz, emisividad, notas,
-                                              ubicacion, self.simulacion)
+                                              ubicacion, self.simulacion, ambiente=self.ambiente)
+        self.ultimo_tablero, self.ultima_ubicacion = tablero, ubicacion
         paleta = self.cfg.get("interfaz.paleta", "ironbow")
         base = f"INS-{id_insp:05d}"
         termica = imagen.renderizar_termica(matriz, paleta, 480, pos_max=analisis["pos_max"],
@@ -408,6 +589,7 @@ class Robot:
                         [cv2.IMWRITE_JPEG_QUALITY, 88])
             cv2.imwrite(str(self.dir_capturas / rutas["img_miniatura"]), imagen.miniatura(visible))
         self.db.actualizar_imagenes(id_insp, **rutas)
+        self._publicar("nueva_inspeccion", {"id": id_insp, "tablero": tablero})
         log.info("Hallazgo %s guardado: %s, ΔT=%.1f °C (%s)", base, tablero, analisis["delta_t"],
                  analisis["clasificacion"]["etiqueta"])
         return self.db.obtener_inspeccion(id_insp)

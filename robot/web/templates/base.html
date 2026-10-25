@@ -21,6 +21,9 @@
     <symbol id="i-oruga" viewBox="0 0 24 24"><rect x="2" y="8" width="20" height="9" rx="4.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="12.5" r="1.6" fill="currentColor"/><circle cx="12" cy="12.5" r="1.6" fill="currentColor"/><circle cx="17" cy="12.5" r="1.6" fill="currentColor"/></symbol>
     <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" stroke="currentColor" stroke-width="2"/></symbol>
     <symbol id="i-termometro" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M14 14.8V4a2 2 0 1 0-4 0v10.8a4 4 0 1 0 4 0z"/></symbol>
+    <symbol id="i-gas" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h8"/></symbol>
+    <symbol id="i-gota" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></symbol>
+    <symbol id="i-mando" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M7 7h10a5 5 0 0 1 4.8 6.3l-1 3.6a2.5 2.5 0 0 1-4.3 1L15 16H9l-1.5 1.9a2.5 2.5 0 0 1-4.3-1l-1-3.6A5 5 0 0 1 7 7z"/><path d="M8 10v4M6 12h4" stroke="currentColor" stroke-width="2"/><circle cx="15.5" cy="11" r="1" fill="currentColor"/><circle cx="17.5" cy="13" r="1" fill="currentColor"/></symbol>
     <symbol id="i-paro" viewBox="0 0 24 24"><path fill="currentColor" d="M7.9 2h8.2L22 7.9v8.2L16.1 22H7.9L2 16.1V7.9z"/></symbol>
   </svg>
 
@@ -31,8 +34,8 @@
     </a>
     {% if simulacion %}<span class="insignia-sim" title="Ejecutando sin hardware (ROBOT_SIM=1)">SIMULACIÓN</span>{% endif %}
     <nav class="navegacion" aria-label="Secciones">
-      {% for id, url, nombre, icono in paginas %}
-      <a href="{{ url }}" class="{{ 'activa' if activa == id else '' }}"><svg class="ico"><use href="#i-{{ icono }}"/></svg><span>{{ nombre }}</span></a>
+      {% for id, url, nombre, corto, icono in paginas %}
+      <a href="{{ url }}" class="{{ 'activa' if activa == id else '' }}"><svg class="ico"><use href="#i-{{ icono }}"/></svg><span class="nombre-largo">{{ nombre }}</span><span class="nombre-corto">{{ corto }}</span></a>
       {% endfor %}
     </nav>
   </header>
@@ -44,13 +47,23 @@
     <span class="chip" id="est-oruga-der"><svg class="ico"><use href="#i-oruga"/></svg><span class="chip-etq">Oruga der.</span><b>— m/s</b></span>
     <span class="chip" id="est-cpu"><svg class="ico"><use href="#i-cpu"/></svg><span class="chip-etq">CPU</span><b>— %</b></span>
     <span class="chip" id="est-temp"><svg class="ico"><use href="#i-termometro"/></svg><span class="chip-etq">Temp. Pi</span><b>— °C</b></span>
+    <span class="chip" id="est-ambiente" title="DHT22: temperatura y humedad ambiente"><svg class="ico"><use href="#i-gota"/></svg><span class="chip-etq">Ambiente</span><b>—</b></span>
+    <span class="chip" id="est-gas" title="MQ-2 (gases inflamables) y MQ-7 (CO)"><svg class="ico"><use href="#i-gas"/></svg><span class="chip-etq">Gases</span><b>—</b></span>
+    <span class="chip" id="est-mando" title="Control Xbox"><svg class="ico"><use href="#i-mando"/></svg><span class="chip-etq">Control</span><b>sin control</b></span>
     <span class="chip chip-hora" id="est-hora"><b>--:--:--</b></span>
   </div>
 
+  <div class="bandas">
   <div id="banda-paro" class="banda-paro" hidden>
     <svg class="ico"><use href="#i-paro"/></svg>
     <span><strong>PARO DE EMERGENCIA ACTIVO.</strong> Los motores están bloqueados.</span>
     <button type="button" id="btn-rearmar" class="btn btn-claro">Rearmar</button>
+  </div>
+
+  <div id="banda-ambiente" class="banda-ambiente" hidden>
+    <svg class="ico"><use href="#i-gas"/></svg>
+    <span id="texto-ambiente"></span>
+  </div>
   </div>
 
   <main class="contenido">
@@ -68,6 +81,7 @@
   <script>window.SIMULACION = {{ 'true' if simulacion else 'false' }};</script>
   <script src="{{ url_for('static', filename='vendor/socket.io.min.js') }}"></script>
   <script src="{{ url_for('static', filename='js/comun.js') }}?v={{ version }}"></script>
+  <script src="{{ url_for('static', filename='js/gamepad.js') }}?v={{ version }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

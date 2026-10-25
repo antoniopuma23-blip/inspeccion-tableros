@@ -25,6 +25,7 @@ RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
 
 PALETAS_VALIDAS = ("ironbow", "arcoiris", "grises", "lava")
 REFERENCIAS_VALIDAS = ("mediana", "punto", "manual")
+MODOS_CONTROL = ("arcade", "tanque")
 
 # Parámetros editables desde la interfaz: ruta -> (tipo, mínimo/opciones, máximo)
 EDITABLES: dict[str, tuple] = {
@@ -51,6 +52,30 @@ EDITABLES: dict[str, tuple] = {
     "reporte.titulo": (str, None, None),
     "reporte.responsable": (str, None, None),
     "reporte.logo": (str, None, None),
+    "camara_termica.usar_dht22_como_reflejada": (bool, None, None),
+    # Sensores ambientales
+    "sensores.mq2.r0_kohm": (float, 0.01, 1000.0),
+    "sensores.mq2.advertencia_ppm": (float, 1.0, 100000.0),
+    "sensores.mq2.alarma_ppm": (float, 1.0, 100000.0),
+    "sensores.mq7.r0_kohm": (float, 0.01, 1000.0),
+    "sensores.mq7.advertencia_ppm": (float, 1.0, 10000.0),
+    "sensores.mq7.alarma_ppm": (float, 1.0, 10000.0),
+    "sensores.ldr.umbral_oscuridad_pct": (float, 0.0, 100.0),
+    "sensores.calentamiento_s": (float, 0.0, 3600.0),
+    "sensores.confirmaciones": (float, 1.0, 20.0),
+    # Respuestas automáticas
+    "respuestas.humedad_alta_pct": (float, 10.0, 100.0),
+    "respuestas.factor_humedad": (float, 0.1, 1.0),
+    "respuestas.permitir_retroceso_en_gas": (bool, None, None),
+    "respuestas.factor_presencia": (float, 0.1, 1.0),
+    "respuestas.duracion_presencia_s": (float, 0.0, 300.0),
+    "respuestas.detener_por_impacto": (bool, None, None),
+    "respuestas.buzzer": (bool, None, None),
+    # Control Xbox
+    "control_xbox.habilitado_pi": (bool, None, None),
+    "control_xbox.modo": (str, MODOS_CONTROL, None),
+    "control_xbox.zona_muerta": (float, 0.0, 0.6),
+    "control_xbox.expo": (float, 0.0, 1.0),
 }
 
 
@@ -168,6 +193,11 @@ class Configuracion:
             if not (a["umbral_posible_c"] < a["umbral_reparar_c"] <= a["umbral_inmediata_c"]):
                 raise ErrorConfiguracion(
                     "Los umbrales ΔT deben cumplir: posible < reparar ≤ inmediata")
+            for gas in ("mq2", "mq7"):
+                g = propuesta.get("sensores", {}).get(gas, {})
+                if "advertencia_ppm" in g and g["advertencia_ppm"] >= g["alarma_ppm"]:
+                    raise ErrorConfiguracion(
+                        f"{gas.upper()}: el umbral de advertencia debe ser menor que el de alarma")
             for ruta, valor in validados.items():
                 _asignar(self._usuario, ruta, valor)
             self._datos = propuesta

@@ -36,8 +36,8 @@ def main():
     else:
         from robot.drivers.camara_visible import detectar_camara
         try:
-            camara = detectar_camara(args.tipo or cv.get("tipo", "auto"),
-                                     cv.get("indice_usb", 0) if args.indice is None else args.indice,
+            camara = detectar_camara(args.tipo or cv.get("tipo", "usb"),
+                                     cv.get("indice_usb", -1) if args.indice is None else args.indice,
                                      cv.get("ancho", 640), cv.get("alto", 480), cv.get("fps", 12))
         except RuntimeError as e:
             raise SystemExit(f"ERROR: no se encontró ninguna cámara.\n{e}\n"

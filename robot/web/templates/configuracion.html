@@ -106,6 +106,69 @@
     </div>
   </article>
 
+  <!-- Sensores ambientales -->
+  <article class="panel">
+    <header class="panel-cab"><h2>Sensores de gas (MQ-2 / MQ-7)</h2></header>
+    <div class="panel-cuerpo">
+      <div class="etiqueta" style="margin-bottom:6px">MQ-2 · gases inflamables (ppm estimadas)</div>
+      <div class="fila">
+        <div class="campo"><label for="mq2a">Advertencia</label><input type="number" id="mq2a" data-clave="sensores.mq2.advertencia_ppm" min="1" step="10"></div>
+        <div class="campo"><label for="mq2b">Alarma (detiene)</label><input type="number" id="mq2b" data-clave="sensores.mq2.alarma_ppm" min="1" step="10"></div>
+        <div class="campo"><label for="mq2r">R0 (kΩ)</label><input type="number" id="mq2r" data-clave="sensores.mq2.r0_kohm" min="0.01" step="0.01"></div>
+      </div>
+      <div class="etiqueta" style="margin-bottom:6px">MQ-7 · monóxido de carbono (ppm estimadas)</div>
+      <div class="fila">
+        <div class="campo"><label for="mq7a">Advertencia</label><input type="number" id="mq7a" data-clave="sensores.mq7.advertencia_ppm" min="1" step="1"></div>
+        <div class="campo"><label for="mq7b">Alarma (detiene)</label><input type="number" id="mq7b" data-clave="sensores.mq7.alarma_ppm" min="1" step="1"></div>
+        <div class="campo"><label for="mq7r">R0 (kΩ)</label><input type="number" id="mq7r" data-clave="sensores.mq7.r0_kohm" min="0.01" step="0.01"></div>
+      </div>
+      <div class="fila">
+        <div class="campo"><label for="calent">Calentamiento (s)</label><input type="number" id="calent" data-clave="sensores.calentamiento_s" min="0" max="3600" step="10"></div>
+        <div class="campo"><label for="confir">Lecturas para confirmar</label><input type="number" id="confir" data-clave="sensores.confirmaciones" min="1" max="20" step="1"></div>
+        <div class="campo"><label for="ldr">Luz mínima (%)</label><input type="number" id="ldr" data-clave="sensores.ldr.umbral_oscuridad_pct" min="0" max="100" step="1"></div>
+      </div>
+      <p class="ayuda">R0 se obtiene con el botón <a href="/ambiente">Calibrar MQ en aire limpio</a> o con <code>scripts/pruebas/calibrar_gases.py</code>. Las ppm de los MQ son estimaciones, no mediciones certificadas.</p>
+    </div>
+  </article>
+
+  <article class="panel">
+    <header class="panel-cab"><h2>Respuestas automáticas</h2></header>
+    <div class="panel-cuerpo">
+      <div class="fila">
+        <div class="campo"><label for="rh">Humedad alta (%)</label><input type="number" id="rh" data-clave="respuestas.humedad_alta_pct" min="10" max="100" step="1"></div>
+        <div class="campo"><label for="rfh">Velocidad con humedad alta</label><input type="number" id="rfh" data-clave="respuestas.factor_humedad" min="0.1" max="1" step="0.05"></div>
+      </div>
+      <div class="fila">
+        <div class="campo"><label for="rfp">Velocidad con presencia (PIR)</label><input type="number" id="rfp" data-clave="respuestas.factor_presencia" min="0.1" max="1" step="0.05"></div>
+        <div class="campo"><label for="rdp">Duración tras presencia (s)</label><input type="number" id="rdp" data-clave="respuestas.duracion_presencia_s" min="0" max="300" step="1"></div>
+      </div>
+      <label class="interruptor" style="margin:4px 0 10px"><input type="checkbox" data-clave="respuestas.permitir_retroceso_en_gas"><span class="pista"></span>Permitir retroceder durante una alarma de gas</label><br>
+      <label class="interruptor" style="margin:4px 0 10px"><input type="checkbox" data-clave="respuestas.detener_por_impacto"><span class="pista"></span>Detener el robot al detectar un impacto</label><br>
+      <label class="interruptor" style="margin:4px 0 10px"><input type="checkbox" data-clave="respuestas.buzzer"><span class="pista"></span>Alerta acústica (zumbador)</label><br>
+      <label class="interruptor" style="margin:4px 0 0"><input type="checkbox" data-clave="camara_termica.usar_dht22_como_reflejada"><span class="pista"></span>Usar la temperatura del DHT22 como temperatura reflejada</label>
+    </div>
+  </article>
+
+  <!-- Control Xbox -->
+  <article class="panel">
+    <header class="panel-cab"><h2>Control Xbox</h2></header>
+    <div class="panel-cuerpo">
+      <div class="fila">
+        <div class="campo">
+          <label for="modo-mando">Modo de manejo</label>
+          <select id="modo-mando" data-clave="control_xbox.modo">
+            <option value="arcade">Arcade (stick izquierdo)</option>
+            <option value="tanque">Tanque (un stick por oruga)</option>
+          </select>
+        </div>
+        <div class="campo"><label for="zm">Zona muerta</label><input type="number" id="zm" data-clave="control_xbox.zona_muerta" min="0" max="0.6" step="0.01"></div>
+        <div class="campo"><label for="expo">Curva expo</label><input type="number" id="expo" data-clave="control_xbox.expo" min="0" max="1" step="0.05"></div>
+      </div>
+      <label class="interruptor"><input type="checkbox" data-clave="control_xbox.habilitado_pi"><span class="pista"></span>Aceptar un control conectado directamente a la Raspberry Pi</label>
+      <p class="ayuda">El control también funciona conectado a la computadora o celular que muestra esta interfaz. Ver la asignación de botones en <a href="/ambiente">Ambiente</a>.</p>
+    </div>
+  </article>
+
   <!-- ESP32 -->
   <article class="panel">
     <header class="panel-cab"><h2>Módulo ESP32-S3 (opcional)</h2><span class="der" id="estado-esp32"></span></header>

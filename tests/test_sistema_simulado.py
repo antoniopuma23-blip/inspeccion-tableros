@@ -34,7 +34,7 @@ def cliente(robot_sim):
 
 def test_paginas_responden(cliente):
     http, *_ = cliente
-    for ruta in ("/", "/captura", "/historial", "/reporte", "/configuracion"):
+    for ruta in ("/", "/captura", "/ambiente", "/historial", "/reporte", "/configuracion"):
         r = http.get(ruta)
         assert r.status_code == 200, ruta
         assert "PARO" in r.get_data(as_text=True)
@@ -155,6 +155,7 @@ def test_cierre_deja_motores_en_cero(robot_sim):
 
 
 def test_estado_incluye_bateria_simulada_y_sistema(robot_sim):
+    assert esperar(lambda: robot_sim.estado()["bateria_v"] is not None)
     e = robot_sim.estado()
     assert e["simulacion"] is True
     assert 6.0 < e["bateria_v"] < 8.5
@@ -184,3 +185,110 @@ def test_config_base_no_se_modifica(tmp_path):
         cfg.actualizar({"camara_termica.emisividad": 2})
     recargada = Configuracion(sobrescribir={"datos": {"directorio": str(tmp_path)}})
     assert recargada.get("camara_termica.emisividad") == pytest.approx(0.9)
+
+
+# ---------------------------------------------------------------------------
+#  Sensores de TechRoach y control Xbox (simulación)
+# ---------------------------------------------------------------------------
+def test_api_ambiente_y_lecturas(cliente):
+    http, _, _, robot = cliente
+    assert esperar(lambda: robot.ambiente.get("temperatura") is not None)
+    d = http.get("/api/ambiente").get_json()
+    assert d["simulacion"] is True
+    assert {"gas", "co", "humedad", "presencia", "impacto", "oscuridad"} <= set(d["eventos_simulables"])
+    a = d["actual"]
+    assert 20 < a["temperatura"] < 35 and 30 < a["humedad"] < 70
+    assert 50 < a["mq2_ppm"] < 250            # la cadena voltaje -> ppm recupera el valor simulado
+    assert a["mq2_nivel"] == "normal" and a["bloqueo"] is None
+
+
+def test_alarma_de_gas_detiene_y_solo_permite_retroceso(cliente):
+    http, socketio, app, robot = cliente
+    sio = socketio.test_client(app)
+    for _ in range(5):
+        sio.emit("mover", {"x": 0, "y": 1})
+        time.sleep(0.1)
+    assert robot.control.referencia[0] > 0
+
+    assert http.post("/api/sim/evento", json={"evento": "gas"}).status_code == 200
+
+    def avanzar_hasta_alarma():
+        sio.emit("mover", {"x": 0, "y": 1})
+        return robot.ambiente.get("mq2_nivel") == "alarma"
+    assert esperar(avanzar_hasta_alarma, timeout=10)
+    time.sleep(0.2)
+    sio.emit("mover", {"x": 0, "y": 1})
+    time.sleep(0.2)
+    assert robot.control.bloqueo == "avance"
+    assert all(v <= 0 for v in robot.control.referencia)
+    assert "gas" in robot.control.ultimo_paro.lower()
+
+    for _ in range(5):                        # retroceder sí se permite
+        sio.emit("mover", {"x": 0, "y": -1})
+        time.sleep(0.1)
+    assert robot.control.referencia[0] < 0
+    sio.disconnect()
+
+    eventos = http.get("/api/eventos").get_json()
+    assert any(e["tipo"] == "gas_mq2" and e["nivel"] == "alarma" for e in eventos)
+    assert robot.drivers.ambiente.estado_salidas is not None
+
+
+def test_humedad_alta_reduce_velocidad(cliente):
+    http, _, _, robot = cliente
+    http.post("/api/sim/evento", json={"evento": "humedad"})
+    assert esperar(lambda: robot.ambiente.get("humedad_alta"), timeout=8)
+    assert robot.control.factor_externo == pytest.approx(0.5)
+
+
+def test_impacto_detiene(cliente):
+    http, _, _, robot = cliente
+    assert esperar(lambda: robot.ambiente.get("temperatura") is not None)
+    robot.comando_movimiento(0, 1)
+    time.sleep(0.3)
+    http.post("/api/sim/evento", json={"evento": "impacto"})
+    assert esperar(lambda: "impacto" in robot.control.ultimo_paro.lower(), timeout=3)
+
+
+def test_evento_simulado_invalido(cliente):
+    http, *_ = cliente
+    assert http.post("/api/sim/evento", json={"evento": "terremoto"}).status_code == 400
+
+
+def test_captura_guarda_condiciones_ambientales(cliente):
+    http, _, _, robot = cliente
+    assert esperar(lambda: robot.matriz_termica() is not None and robot.ambiente.get("humedad") is not None)
+    insp = http.post("/api/capturar", json={"tablero": "TD-05"}).get_json()["inspeccion"]
+    assert insp["t_ambiente"] is not None and insp["humedad"] is not None
+    assert http.get(f"/api/inspecciones/{insp['id']}/pdf").data[:4] == b"%PDF"
+
+
+def test_control_xbox_por_socket(cliente):
+    http, socketio, app, robot = cliente
+    sio = socketio.test_client(app)
+    for _ in range(6):                        # modo tanque: orugas en sentidos opuestos
+        sio.emit("orugas", {"izq": 1.0, "der": -1.0})
+        time.sleep(0.1)
+    assert robot.control.referencia[0] > 0 > robot.control.referencia[1]
+
+    r = sio.emit("captura_rapida", callback=True)
+    assert r["ok"] is False                   # aún no hay un tablero capturado
+    assert esperar(lambda: robot.matriz_termica() is not None)
+    http.post("/api/capturar", json={"tablero": "TD-07"})
+    r = sio.emit("captura_rapida", callback=True)
+    assert r["ok"] is True and r["tablero"] == "TD-07"
+    sio.disconnect()
+
+
+def test_calibracion_de_gases(cliente):
+    http, _, _, robot = cliente
+    assert esperar(lambda: len(robot._voltajes_mq["mq2"]) >= 10)
+    r0_previo = robot.cfg.get("sensores.mq2.r0_kohm")
+    r = http.post("/api/sensores/calibrar").get_json()
+    assert r["ok"] and r["valores"]["sensores.mq2.r0_kohm"] != r0_previo
+    assert robot.cfg.get("sensores.mq2.r0_kohm") == r["valores"]["sensores.mq2.r0_kohm"]
+
+
+def test_temperatura_reflejada_usa_dht22(robot_sim):
+    assert esperar(lambda: robot_sim.ambiente.get("temperatura") is not None)
+    assert robot_sim.temperatura_reflejada() == pytest.approx(robot_sim.ambiente["temperatura"])

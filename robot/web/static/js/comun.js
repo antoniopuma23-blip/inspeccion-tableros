@@ -45,6 +45,12 @@ const Robot = (() => {
     emitirLocal("seguridad", s);
   });
   socket.on("nueva_inspeccion", (d) => emitirLocal("nueva_inspeccion", d));
+  socket.on("ambiente_evento", (ev) => {
+    const tipo = { alarma: "error", advertencia: "aviso", normal: "ok" }[ev.nivel] || "info";
+    aviso(ev.mensaje, tipo, ev.nivel === "alarma" ? 7000 : 4200);
+    emitirLocal("ambiente_evento", ev);
+  });
+  socket.on("aviso", (a) => aviso(a.mensaje, a.tipo || "info"));
 
   // ------------------------------------------------------------ Barra de estado
   const $ = (sel) => document.querySelector(sel);
@@ -75,9 +81,28 @@ const Robot = (() => {
     chip("est-temp", e.temp_soc == null ? "sin dato" : `${e.temp_soc.toFixed(1)} °C`,
       e.temp_soc > 75 ? "mal" : e.temp_soc > 65 ? "aviso" : null);
     chip("est-hora", e.hora || "", null);
+    pintarAmbiente(e.ambiente);
     $("#banda-paro").hidden = !e.paro_emergencia;
     document.body.classList.toggle("en-paro", !!e.paro_emergencia);
     emitirLocal("estado", e);
+  }
+
+  const NIVEL_CHIP = { normal: "ok", advertencia: "aviso", alarma: "mal" };
+  function pintarAmbiente(a) {
+    if (!a) return;
+    chip("est-ambiente", a.temperatura == null ? "sin dato"
+      : `${a.temperatura.toFixed(1)} °C · ${a.humedad == null ? "—" : Math.round(a.humedad)} %`,
+      a.humedad_alta ? "aviso" : null);
+    const peor = [a.mq2_nivel, a.mq7_nivel].includes("alarma") ? "alarma"
+      : [a.mq2_nivel, a.mq7_nivel].includes("advertencia") ? "advertencia" : "normal";
+    chip("est-gas", a.calentando ? `calentando ${a.calentamiento_restante_s} s`
+      : a.mq2_ppm == null && a.mq7_ppm == null ? (peor === "normal" ? "sin dato" : peor.toUpperCase())
+      : peor === "normal" ? "OK" : peor.toUpperCase(), a.calentando ? null : NIVEL_CHIP[peor]);
+    const banda = $("#banda-ambiente");
+    const avisos = (a.avisos || []).filter((t) => !t.startsWith("Sensores de gas en calentamiento"));
+    banda.hidden = !avisos.length;
+    banda.classList.toggle("alarma", !!a.alarma);
+    $("#texto-ambiente").textContent = avisos.join(" · ");
   }
 
   // ------------------------------------------------------------ Paro de emergencia
@@ -149,7 +174,7 @@ const Robot = (() => {
     return d;
   }
 
-  return { socket, estado: estadoApp, escuchar, aviso, api, paro, cargarPaletas, cargarConfig };
+  return { socket, estado: estadoApp, escuchar, aviso, api, paro, rearmar, cargarPaletas, cargarConfig, chip };
 })();
 
 /* ---------------------------------------------------------------- Formato */
@@ -202,4 +227,25 @@ function pintarTablaCriterio(tabla, cfg, nivelActual) {
 function insigniaClasif(nivel, texto) {
   const c = CLASIFICACIONES[nivel] || CLASIFICACIONES[0];
   return `<span class="clasif" style="--c:${c.color}">${escaparHTML(texto || c.etiqueta)}</span>`;
+}
+
+/* ------------------------------------------------ Sensores ambientales (TechRoach) */
+/** Tarjetas con los valores de los sensores; se reutiliza en "En vivo" y "Ambiente". */
+function pintarSensores(contenedor, a) {
+  if (!contenedor || !a) return;
+  const n = (v, d = 0) => (v == null ? "—" : Number(v).toFixed(d));
+  const nivelGas = (nivel) => (a.calentando ? "info" : { normal: "ok", advertencia: "advertencia", alarma: "alarma" }[nivel]);
+  const subGas = (nivel) => (a.calentando ? `calentando (${a.calentamiento_restante_s} s)` : nivel);
+  const tarjetas = [
+    ["Temperatura", `${n(a.temperatura, 1)} °C`, "DHT22", a.temperatura == null ? null : "ok"],
+    ["Humedad", `${n(a.humedad)} %`, a.humedad_alta ? "alta → velocidad reducida" : "DHT22", a.humedad == null ? null : a.humedad_alta ? "advertencia" : "ok"],
+    ["Gas inflamable", `${n(a.mq2_ppm)} ppm`, `MQ-2 · ${subGas(a.mq2_nivel)}`, nivelGas(a.mq2_nivel)],
+    ["Monóxido de carbono", `${n(a.mq7_ppm)} ppm`, `MQ-7 · ${subGas(a.mq7_nivel)}`, nivelGas(a.mq7_nivel)],
+    ["Luz", `${n(a.luz_pct)} %`, a.oscuro ? "oscuro → iluminación ON" : "LDR", a.oscuro ? "info" : a.luz_pct == null ? null : "ok"],
+    ["Presencia", a.pir == null ? "—" : a.presencia ? "DETECTADA" : "libre", "PIR (con el robot detenido)", a.presencia ? "advertencia" : a.pir == null ? null : "ok"],
+    ["Impactos", n(a.impactos), a.impacto_reciente ? "¡impacto reciente!" : "Piezoeléctrico", a.impacto_reciente ? "alarma" : "ok"],
+    ["Batería", a.bateria_v == null ? "sin dato" : `${n(a.bateria_v, 2)} V`, "ADS1115 canal A3", a.bateria_v == null ? null : "ok"],
+  ];
+  contenedor.innerHTML = tarjetas.map(([t, v, sub, nivel]) =>
+    `<div class="sensor"${nivel ? ` data-nivel="${nivel}"` : ""}><span>${t}</span><b>${v}</b><small>${escaparHTML(sub)}</small></div>`).join("");
 }

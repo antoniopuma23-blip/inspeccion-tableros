@@ -143,6 +143,7 @@ def generar_reporte(insp: dict, cfg_reporte: dict, umbrales: dict, ruta_salida: 
         ["Tablero", insp.get("tablero", ""), "Fecha y hora", _fecha(insp["fecha"])],
         ["Ubicación", insp.get("ubicacion") or "—", "Responsable", cfg_reporte.get("responsable", "")],
         ["Equipo", "MLX90640 32×24, FOV 55°", "Emisividad (ε)", f"{insp['emisividad']:.2f}"],
+        ["Ambiente", _ambiente(insp), "Gases (MQ-2 / CO)", _gases(insp)],
     ]
     t = Table(datos, colWidths=[2.6 * cm, ancho_util / 2 - 2.6 * cm, 2.9 * cm, ancho_util / 2 - 2.9 * cm])
     t.setStyle(estilo_tabla)
@@ -259,6 +260,22 @@ def generar_reporte(insp: dict, cfg_reporte: dict, umbrales: dict, ruta_salida: 
 
     doc.build(elementos, onFirstPage=encabezado_pie, onLaterPages=encabezado_pie)
     return ruta_salida
+
+
+def _ambiente(insp: dict) -> str:
+    """Temperatura y humedad del DHT22 al momento de la captura."""
+    t, h = insp.get("t_ambiente"), insp.get("humedad")
+    if t is None and h is None:
+        return "sin dato"
+    return " · ".join(x for x in (f"{t:.1f} °C" if t is not None else "",
+                                  f"{h:.0f} % HR" if h is not None else "") if x)
+
+
+def _gases(insp: dict) -> str:
+    g2, g7 = insp.get("mq2_ppm"), insp.get("mq7_ppm")
+    if g2 is None and g7 is None:
+        return "sin dato"
+    return f"{'—' if g2 is None else f'{g2:.0f}'} / {'—' if g7 is None else f'{g7:.0f}'} ppm (estim.)"
 
 
 def _fecha(iso: str) -> str:

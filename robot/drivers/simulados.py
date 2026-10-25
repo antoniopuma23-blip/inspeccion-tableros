@@ -23,7 +23,9 @@ import time
 
 import numpy as np
 
-from .base import DriverCamaraTermica, DriverCamaraVisible, DriverEncoders, DriverMotores
+from ..logica.ambiente import voltaje_desde_ppm
+from .base import (DriverCamaraTermica, DriverCamaraVisible, DriverEncoders, DriverMotores,
+                   DriverSensoresAmbiente)
 
 try:
     import cv2
@@ -334,6 +336,92 @@ class CamaraTermicaSimulada(DriverCamaraTermica):
         cy = y0 + h * (0.5 + s.get("desplazamiento_y", 0.0))
         tw, th = w * ex, h * ey
         return self.escena.temperaturas(cx - tw / 2, cy - th / 2, tw, th)
+
+
+class SensoresAmbienteSimulados(DriverSensoresAmbiente):
+    """Sensores de TechRoach simulados, con eventos que se pueden provocar desde la interfaz.
+
+    Las lecturas pasan por la misma cadena que en el robot real: se generan
+    VOLTAJES (como los del ADS1115) a partir de las ppm deseadas, y el
+    procesador los convierte de nuevo a ppm con la calibración configurada.
+    """
+
+    nombre = "Sensores TechRoach simulados"
+    detalle = "DHT22, MQ-2, MQ-7, PIR, piezoeléctrico, LDR y batería"
+
+    # Eventos que se pueden provocar: nombre -> (duración s, descripción)
+    EVENTOS = {
+        "gas": (25.0, "Fuga de gas inflamable (MQ-2)"),
+        "co": (25.0, "Monóxido de carbono (MQ-7)"),
+        "humedad": (30.0, "Humedad alta (> 80 %)"),
+        "presencia": (4.0, "Persona frente al robot (PIR)"),
+        "impacto": (0.0, "Impacto / caída (piezoeléctrico)"),
+        "oscuridad": (30.0, "Zona oscura (LDR)"),
+    }
+
+    def __init__(self, obtener_cfg, bateria: "BateriaSimulada | None" = None,
+                 modelo: ModeloTraccionSimulado | None = None):
+        # Función que devuelve la sección "sensores" vigente (sigue la calibración)
+        self.obtener_cfg = obtener_cfg
+        self.bateria = bateria
+        self.modelo = modelo
+        self._t0 = time.monotonic()
+        self._activos: dict[str, float] = {}     # evento -> instante de inicio
+        self.impactos = 0
+        self.estado_salidas = {"buzzer": False, "led_alarma": False, "iluminacion": False}
+
+    def inyectar(self, evento: str) -> None:
+        if evento not in self.EVENTOS:
+            raise ValueError(f"Evento simulado desconocido: {evento}")
+        if evento == "impacto":
+            self.impactos += 1
+        else:
+            self._activos[evento] = time.monotonic()
+
+    def _intensidad(self, evento: str) -> float:
+        """0 → 1 → 0: subida de 3 s, meseta y bajada de 3 s."""
+        inicio = self._activos.get(evento)
+        if inicio is None:
+            return 0.0
+        dur = self.EVENTOS[evento][0]
+        t = time.monotonic() - inicio
+        if t > dur:
+            del self._activos[evento]
+            return 0.0
+        return max(0.0, min(1.0, t / 3.0, (dur - t) / 3.0))
+
+    def _voltaje_mq(self, gas: str, ppm: float) -> float:
+        g = self.obtener_cfg()[gas]
+        return voltaje_desde_ppm(ppm, float(g["curva_a"]), float(g["curva_b"]), float(g["r0_kohm"]),
+                                 float(g.get("vc", 5.0)), float(g.get("rl_kohm", 1.0)))
+
+    def leer(self) -> dict:
+        t = time.monotonic() - self._t0
+        ruido = np.random.normal
+        mq2 = 120 + 25 * math.sin(t / 40) + ruido(0, 6) + 1500 * self._intensidad("gas")
+        mq7 = 8 + 3 * math.sin(t / 55) + ruido(0, 0.8) + 160 * self._intensidad("co")
+        humedad = 52 + 4 * math.sin(t / 90) + 36 * self._intensidad("humedad")
+        temperatura = 26.5 + 0.8 * math.sin(t / 120) + ruido(0, 0.05)
+        luz = 0.62 * 3.3 * (1 - 0.85 * self._intensidad("oscuridad")) + ruido(0, 0.01)
+        carga = 0.0
+        if self.modelo is not None:
+            carga = sum(abs(d) for d in self.modelo.duty) / 2
+        return {
+            "v_mq2": self._voltaje_mq("mq2", max(1.0, mq2)),
+            "v_mq7": self._voltaje_mq("mq7", max(0.5, mq7)),
+            "v_ldr": max(0.0, luz),
+            "v_bateria": self.bateria.voltaje(carga) if self.bateria else None,
+            "temperatura": round(temperatura, 1),
+            "humedad": round(min(99.0, humedad), 1),
+            "pir": self._intensidad("presencia") > 0,
+            "impactos": self.impactos,
+        }
+
+    def salidas(self, buzzer: bool = False, led_alarma: bool = False, iluminacion: bool = False) -> None:
+        self.estado_salidas = {"buzzer": buzzer, "led_alarma": led_alarma, "iluminacion": iluminacion}
+
+    def eventos_activos(self) -> list[str]:
+        return [e for e in list(self._activos) if self._intensidad(e) > 0]
 
 
 class BateriaSimulada:

@@ -1,10 +1,12 @@
 """Drivers reales de la cámara visible.
 
-Se soportan dos tipos de cámara y se detecta automáticamente cuál está
-conectada (``camara_visible.tipo: auto``):
+La cámara principal es una **webcam USB** (reemplaza a la ESP32-CAM del
+proyecto TechRoach, ya que la Raspberry Pi tiene puertos USB), leída con
+OpenCV (``cv2.VideoCapture``). Con ``indice_usb: -1`` se busca la primera
+webcam disponible entre /dev/video0 y /dev/video3.
 
-1. Módulo Pi Camera por CSI, mediante ``picamera2`` (libcamera).
-2. Webcam USB, mediante OpenCV (``cv2.VideoCapture``).
+También se soporta un módulo Pi Camera por CSI (``picamera2``), con
+``camara_visible.tipo: picamera2`` o ``auto``.
 """
 
 from __future__ import annotations
@@ -93,20 +95,33 @@ class CamaraUSB(DriverCamaraVisible):
         self._cap.release()
 
 
-def detectar_camara(tipo: str = "auto", indice_usb: int = 0, ancho: int = 640,
-                    alto: int = 480, fps: int = 12) -> DriverCamaraVisible:
-    """Crea la cámara indicada; con ``auto`` prueba Pi Camera y luego USB."""
+def _abrir_usb(indice: int, ancho: int, alto: int, fps: int) -> "CamaraUSB":
+    """Abre la webcam indicada o, con índice negativo, la primera que responda."""
+    if indice >= 0:
+        return CamaraUSB(indice, ancho, alto, fps)
     errores = []
+    for i in range(4):
+        try:
+            return CamaraUSB(i, ancho, alto, fps)
+        except RuntimeError as e:
+            errores.append(str(e))
+    raise RuntimeError("No se encontró ninguna webcam USB (" + "; ".join(errores) + ")")
+
+
+def detectar_camara(tipo: str = "usb", indice_usb: int = -1, ancho: int = 640,
+                    alto: int = 480, fps: int = 12) -> DriverCamaraVisible:
+    """Crea la cámara indicada; con ``auto`` prueba la webcam USB y luego la Pi Camera."""
+    errores = []
+    if tipo in ("auto", "usb"):
+        try:
+            return _abrir_usb(int(indice_usb), ancho, alto, fps)
+        except Exception as e:
+            errores.append(f"USB: {e}")
+            log.info("Webcam USB no disponible: %s", e)
     if tipo in ("auto", "picamera2"):
         try:
             return CamaraPicamera2(ancho, alto, fps)
         except Exception as e:
             errores.append(f"Pi Camera: {e}")
             log.info("Pi Camera no disponible: %s", e)
-    if tipo in ("auto", "usb"):
-        try:
-            return CamaraUSB(indice_usb, ancho, alto, fps)
-        except Exception as e:
-            errores.append(f"USB: {e}")
-            log.info("Webcam USB no disponible: %s", e)
     raise RuntimeError("; ".join(errores) or f"Tipo de cámara desconocido: {tipo}")

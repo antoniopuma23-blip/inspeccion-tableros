@@ -30,12 +30,14 @@ from .socket_eventos import registrar_eventos
 
 log = logging.getLogger(__name__)
 
+# (id, ruta, nombre, nombre corto para celular, icono)
 PAGINAS = [
-    ("en_vivo", "/", "Inspección en vivo", "visor"),
-    ("captura", "/captura", "Captura", "camara"),
-    ("historial", "/historial", "Historial", "lista"),
-    ("reporte", "/reporte", "Reporte", "documento"),
-    ("configuracion", "/configuracion", "Configuración", "engrane"),
+    ("en_vivo", "/", "Inspección en vivo", "En vivo", "visor"),
+    ("captura", "/captura", "Captura", "Captura", "camara"),
+    ("ambiente", "/ambiente", "Ambiente", "Ambiente", "gas"),
+    ("historial", "/historial", "Historial", "Historial", "lista"),
+    ("reporte", "/reporte", "Reporte", "Reporte", "documento"),
+    ("configuracion", "/configuracion", "Configuración", "Ajustes", "engrane"),
 ]
 
 
@@ -60,6 +62,7 @@ def crear_app(robot: Robot) -> tuple[Flask, SocketIO]:
 
     app.add_url_rule("/", "en_vivo", lambda: _pagina("en_vivo.html", "en_vivo"))
     app.add_url_rule("/captura", "captura", lambda: _pagina("captura.html", "captura"))
+    app.add_url_rule("/ambiente", "ambiente", lambda: _pagina("ambiente.html", "ambiente"))
     app.add_url_rule("/historial", "historial", lambda: _pagina("historial.html", "historial"))
     app.add_url_rule("/reporte", "reporte", lambda: _pagina("reporte.html", "reporte"))
     app.add_url_rule("/configuracion", "configuracion",
@@ -139,14 +142,12 @@ def crear_app(robot: Robot) -> tuple[Flask, SocketIO]:
             aplicados = robot.aplicar_configuracion(cambios)
         except ErrorConfiguracion as e:
             return jsonify({"ok": False, "error": str(e)}), 400
-        socketio.emit("config", robot.cfg.editables())
         return jsonify({"ok": True, "aplicados": aplicados, "valores": robot.cfg.editables()})
 
     @app.post("/api/config/restablecer")
     def api_config_restablecer():
         robot.cfg.restablecer()
         robot.aplicar_configuracion({})
-        socketio.emit("config", robot.cfg.editables())
         return jsonify({"ok": True, "valores": robot.cfg.editables()})
 
     @app.post("/api/logo")
@@ -178,8 +179,37 @@ def crear_app(robot: Robot) -> tuple[Flask, SocketIO]:
                                   d.get("referencia"), d.get("matriz"))
         except (ValueError, RuntimeError) as e:
             return jsonify({"ok": False, "error": str(e)}), 400
-        socketio.emit("nueva_inspeccion", {"id": insp["id"], "tablero": insp["tablero"]})
         return jsonify({"ok": True, "inspeccion": insp})
+
+    # ------------------------------------------------------------- API: sensores ambientales
+    @app.get("/api/ambiente")
+    def api_ambiente():
+        return jsonify({"actual": robot.ambiente, "historial": list(robot.historial_ambiente),
+                        "simulacion": robot.simulacion,
+                        "eventos_simulables": {k: v[1] for k, v in getattr(
+                            robot.drivers.ambiente, "EVENTOS", {}).items()}})
+
+    @app.get("/api/eventos")
+    def api_eventos():
+        return jsonify(robot.db.listar_eventos(int(request.args.get("limite", 200)),
+                                               request.args.get("tipo") or None))
+
+    @app.post("/api/sensores/calibrar")
+    def api_calibrar_gases():
+        try:
+            cambios = robot.calibrar_gases()
+        except (ValueError, ErrorConfiguracion) as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({"ok": True, "valores": cambios})
+
+    @app.post("/api/sim/evento")
+    def api_sim_evento():
+        evento = (request.get_json(silent=True) or {}).get("evento", "")
+        try:
+            descripcion = robot.inyectar_evento_simulado(evento)
+        except (ValueError, RuntimeError) as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({"ok": True, "descripcion": descripcion})
 
     @app.get("/api/tableros")
     def api_tableros():
