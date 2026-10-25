@@ -7,7 +7,10 @@
   const $ = (id) => document.getElementById(id);
   const form = $("form-config");
   const campos = () => form.querySelectorAll("[data-clave]");
-  const NOMBRES_COMP = { motores: "Motores (L298N)", encoders: "Encoders", camara_termica: "Cámara térmica MLX90640", camara_visible: "Cámara visible" };
+  const NOMBRES_COMP = {
+    motores: "Motores (L298N)", encoders: "Encoders", camara_termica: "Cámara térmica MLX90640",
+    camara_visible: "Cámara visible (webcam USB)", sensores_ambiente: "Sensores TechRoach", control_xbox: "Control Xbox (Pi)",
+  };
   let paletas = {};
 
   function rellenar(valores) {
@@ -105,9 +108,12 @@
     const nombres = {
       motor_izquierdo: "Motor izquierdo", motor_derecho: "Motor derecho",
       encoder_izquierdo: "Encoder izquierdo", encoder_derecho: "Encoder derecho",
-      i2c: "MLX90640 (I2C-1)", uart_esp32: "ESP32 (UART0)",
+      i2c: "I2C-1 (MLX90640 + ADS1115)", uart_esp32: "ESP32 (UART0)",
+      dht22: "DHT22", pir: "PIR", vibracion: "Piezoeléctrico", iluminacion: "Iluminación (LDR)",
+      alarma: "Alarma", mq2_digital: "MQ-2 (DO, respaldo)", mq7_digital: "MQ-7 (DO, respaldo)",
     };
-    const senales = { pwm: "PWM (EN)", in1: "Dirección 1", in2: "Dirección 2", a: "Canal A", b: "Canal B", sda: "SDA", scl: "SCL", tx: "TX", rx: "RX" };
+    const senales = { pwm: "PWM (EN)", in1: "Dirección 1", in2: "Dirección 2", a: "Canal A", b: "Canal B", sda: "SDA", scl: "SCL", tx: "TX", rx: "RX",
+      datos: "Datos", salida: "Salida digital", mosfet: "MOSFET del LED", buzzer: "Zumbador", led: "LED rojo" };
     const filas = [];
     for (const [grupo, sen] of Object.entries(pines)) {
       for (const [s, gpio] of Object.entries(sen)) {

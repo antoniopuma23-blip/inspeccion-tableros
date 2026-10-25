@@ -2,13 +2,19 @@
 
 Proyecto académico de **Ingeniería Mecatrónica**. Es un robot con tracción por orugas, controlado por una **Raspberry Pi 3 Model B+**, que recorre una instalación y hace inspecciones termográficas de tableros eléctricos. El software muestra en el navegador (computadora o celular) el video visible y el mapa térmico en vivo, y permite conducir el robot. Cada hallazgo se clasifica con el criterio **ΔT de ANSI/NETA MTS** y se genera un **reporte PDF** con referencia a **NOM-029-STPS** y **NFPA 70B**.
 
+Además reutiliza los **sensores ambientales del proyecto anterior, TechRoach** (DHT22, MQ-2, MQ-7, PIR, piezoeléctrico y LDR), ahora conectados a la Raspberry Pi y con las mismas respuestas automáticas. Usa una **webcam USB** en lugar de la ESP32-CAM y se puede manejar con un **control Xbox** (temporal; a futuro se diseñará un control dedicado).
+
 > Todo el sistema funciona también **sin hardware** (modo simulación) en cualquier laptop, con la misma interfaz.
 
 ![Inspección en vivo](docs/captura_en_vivo.png)
 
-| Captura de hallazgos | Historial y tendencia | Celular |
-|---|---|---|
-| ![Captura](docs/captura_hallazgo.png) | ![Historial](docs/captura_historial.png) | ![Celular](docs/captura_movil.png) |
+| Monitoreo ambiental (TechRoach) | Captura de hallazgos |
+|---|---|
+| ![Ambiente](docs/captura_ambiente.png) | ![Captura](docs/captura_hallazgo.png) |
+
+| Historial y tendencia | Celular |
+|---|---|
+| ![Historial](docs/captura_historial.png) | ![Celular](docs/captura_movil.png) |
 
 ---
 
@@ -23,13 +29,15 @@ Proyecto académico de **Ingeniería Mecatrónica**. Es un robot con tracción p
 7. [Uso de la interfaz](#uso-de-la-interfaz)
 8. [Seguridad](#seguridad)
 9. [Análisis térmico y clasificación ΔT](#análisis-térmico-y-clasificación-δt)
-10. [Calibración del diámetro de la rueda](#calibración-del-diámetro-de-la-rueda)
-11. [Pruebas](#pruebas)
-12. [ESP32-S3 opcional](#esp32-s3-opcional)
-13. [API](#api)
-14. [Rendimiento en la Raspberry Pi 3 B+](#rendimiento-en-la-raspberry-pi-3-b)
-15. [Solución de problemas](#solución-de-problemas)
-16. [Normas de referencia](#normas-de-referencia)
+10. [Sensores ambientales (TechRoach)](#sensores-ambientales-techroach)
+11. [Control Xbox](#control-xbox)
+12. [Calibración del diámetro de la rueda](#calibración-del-diámetro-de-la-rueda)
+13. [Pruebas](#pruebas)
+14. [ESP32-S3 opcional](#esp32-s3-opcional)
+15. [API](#api)
+16. [Rendimiento en la Raspberry Pi 3 B+](#rendimiento-en-la-raspberry-pi-3-b)
+17. [Solución de problemas](#solución-de-problemas)
+18. [Normas de referencia](#normas-de-referencia)
 
 ---
 
@@ -38,8 +46,9 @@ Proyecto académico de **Ingeniería Mecatrónica**. Es un robot con tracción p
 | Área | Funciones |
 |---|---|
 | **Inspección en vivo** | Video visible MJPEG (640×480, 12 fps) y mapa térmico (32×24, 4 Hz) lado a lado; superposición del térmico sobre el visible con transparencia ajustable; paletas ironbow, arcoíris, grises y lava con escala de temperatura; temperatura máxima, mínima, mediana y bajo el cursor; recuadro sobre el punto más caliente. |
-| **Conducción** | Joystick táctil y teclado (WASD/flechas), limitador de velocidad, rampa de aceleración y control PI de velocidad con encoders. |
-| **Barra de estado** | Conexión, batería (o "sin dato"), velocidad de cada oruga medida con encoders, uso de CPU y temperatura de la Pi. |
+| **Conducción** | Joystick táctil, teclado (WASD/flechas) y **control Xbox** (modo arcade o tanque, conectado al navegador o directo a la Pi). Limitador de velocidad, rampa de aceleración y control PI de velocidad con encoders. |
+| **Sensores TechRoach** | DHT22, MQ-2, MQ-7, PIR, piezoeléctrico y LDR con sus respuestas automáticas: humedad alta reduce la velocidad, gas detiene el robot (solo permite retroceder), presencia reduce la velocidad, un impacto detiene el robot y la poca luz enciende la iluminación. Página **Ambiente** con gráficas en vivo y registro de eventos. |
+| **Barra de estado** | Conexión, batería (ADS1115, o "sin dato"), velocidad de cada oruga medida con encoders, CPU y temperatura de la Pi, ambiente (T/HR), gases y control conectado. |
 | **Captura** | Guarda imagen visible, matriz térmica, fecha, ID del tablero, ubicación y notas. ΔT contra la mediana del cuadro, contra un punto elegido con un clic o contra un valor manual. Clasificación automática ANSI/NETA. |
 | **Historial** | Tabla con filtros (tablero, clasificación, fechas), miniaturas, detalle y gráfica de tendencia de temperatura máxima (Chart.js). |
 | **Reporte PDF** | Encabezado con logo configurable, imágenes, temperaturas, ΔT, clasificación, recomendación, criterio de evaluación, marco normativo y espacio para firmas. |
@@ -64,6 +73,7 @@ flowchart LR
             CTRL["control.py<br/>skid steering, rampa, PI"]
             WD["watchdog.py<br/>500 ms"]
             AT["analisis_termico.py<br/>ΔT, ANSI/NETA, ε"]
+            AMB["ambiente.py<br/>MQ→ppm, alarmas,<br/>respuestas automáticas"]
         end
         subgraph DAT["robot/datos"]
             DB[("SQLite")]
@@ -71,8 +81,8 @@ flowchart LR
         end
         subgraph DRV["robot/drivers (interfaz común)"]
             direction TB
-            REAL["Reales: L298N/pigpio,<br/>encoders, MLX90640,<br/>picamera2/USB"]
-            SIM["Simulados: modelo dinámico,<br/>escena de tablero,<br/>punto caliente móvil"]
+            REAL["Reales: L298N/pigpio,<br/>encoders, MLX90640, webcam,<br/>ADS1115, DHT22, evdev"]
+            SIM["Simulados: modelo dinámico,<br/>escena de tablero, punto<br/>caliente, sensores con eventos"]
         end
     end
 
@@ -80,20 +90,24 @@ flowchart LR
         MOT["2× motor DC 330 rpm<br/>+ L298N"]
         ENC["2× encoder<br/>cuadratura"]
         MLX["MLX90640<br/>(I2C)"]
-        CAM["Pi Camera / webcam"]
+        CAM["Webcam USB"]
+        ADS["ADS1115 (I2C)<br/>MQ-2, MQ-7, LDR, batería"]
+        DIG["DHT22, PIR, piezo<br/>zumbador, LEDs"]
+        XBOX["Control Xbox<br/>(USB/Bluetooth)"]
         ESP["ESP32-S3<br/>(opcional, UART)"]
     end
 
-    UI <-- "Socket.IO: mover, paro,<br/>térmico 4 Hz, estado 2 Hz" --> WEB
+    UI <-- "Socket.IO: mover, orugas, paro,<br/>térmico 4 Hz, estado 2 Hz" --> WEB
     UI <-- "HTTP: páginas, API REST,<br/>video MJPEG, PDF" --> WEB
     WEB --> ROB
     ROB --> CTRL --> WD
     ROB --> AT
+    ROB --> AMB
     ROB --> DB
     ROB --> PDF
     CTRL --> DRV
     ROB --> DRV
-    REAL --- MOT & ENC & MLX & CAM
+    REAL --- MOT & ENC & MLX & CAM & ADS & DIG & XBOX
     ROB -. "JSON por línea" .- ESP
 ```
 
@@ -112,6 +126,8 @@ flowchart LR
 | `control-traccion` | 50 Hz | Watchdog, rampa, PI y PWM de los motores |
 | `camara-termica` | 4 Hz | Lectura MLX90640, corrección de emisividad y estadísticas |
 | `camara-visible` | 12 fps (2 fps sin espectadores) | Captura; JPEG compartido entre clientes |
+| `sensores` | 2 Hz | Sensores de TechRoach, alarmas, respuestas automáticas, zumbador/LEDs |
+| `control-xbox` | 20 Hz | Control Xbox conectado a la Pi (si existe) |
 | `estado` | 2 Hz | CPU, temperatura, batería y velocidades |
 
 ---
@@ -131,7 +147,9 @@ inspeccion-tableros/
 │   │   ├── motores_l298n.py     PWM por hardware con pigpio
 │   │   ├── encoders_pigpio.py   Decodificación de cuadratura ×4 / ×1
 │   │   ├── mlx90640.py          Cámara térmica por I2C
-│   │   ├── camara_visible.py    picamera2 o webcam USB (detección automática)
+│   │   ├── camara_visible.py    Webcam USB (o Pi Camera), detección automática
+│   │   ├── sensores_rpi.py      ADS1115, DHT22, PIR, piezo y salidas de alarma
+│   │   ├── control_xbox.py      Control Xbox conectado a la Pi (evdev)
 │   │   ├── esp32_uart.py        Protocolo JSON por línea (opcional)
 │   │   ├── sistema.py           CPU, temperatura y RAM
 │   │   ├── simulados.py         Motores, encoders, cámaras y batería simulados
@@ -140,6 +158,8 @@ inspeccion-tableros/
 │   │   ├── watchdog.py          Paro si no llegan comandos en 500 ms
 │   │   ├── control.py           Skid steering, rampa, límite de velocidad, PI
 │   │   ├── analisis_termico.py  Estadísticas, referencia, ΔT, ANSI/NETA, emisividad
+│   │   ├── ambiente.py          Sensores TechRoach: ppm, filtros, alarmas, respuestas
+│   │   ├── gamepad.py           Mapeo del control Xbox (arcade / tanque)
 │   │   ├── paletas.py           Paletas de color compartidas con el navegador
 │   │   ├── imagen_termica.py    Termogramas, superposición y miniaturas
 │   │   ├── bateria.py           Estado de carga de la LiPo
@@ -150,7 +170,7 @@ inspeccion-tableros/
 │   └── web/
 │       ├── app.py               Flask: páginas, API, MJPEG
 │       ├── socket_eventos.py    Socket.IO: movimiento, paro, telemetría
-│       ├── templates/           base, en_vivo, captura, historial, reporte, configuracion
+│       ├── templates/           base, en_vivo, captura, ambiente, historial, reporte, configuracion
 │       └── static/              css/panel.css, js/*.js, img/logo.png, vendor/ (Socket.IO, Chart.js)
 ├── scripts/
 │   ├── instalar_pi.sh           Instalador para la Pi (servicio systemd, robot.local)
@@ -161,6 +181,9 @@ inspeccion-tableros/
 │       ├── probar_encoders.py
 │       ├── probar_mlx90640.py
 │       ├── probar_camara.py
+│       ├── probar_sensores.py
+│       ├── probar_control_xbox.py
+│       ├── calibrar_gases.py
 │       └── calibrar_diametro.py
 ├── firmware/esp32_ejemplo/      Sketch de ejemplo para el ESP32-S3 (opcional)
 ├── tests/                       Pruebas con pytest
@@ -179,8 +202,18 @@ inspeccion-tableros/
 | Tracción | 2 motores DC 330 rpm con encoder, orugas (skid steering) | PWM + GPIO |
 | Driver de motores | L298N (puente H doble) | PWM + GPIO |
 | Cámara térmica | Melexis MLX90640 (32×24, FOV 55°×35°) | I2C (0x33) |
-| Cámara visible | Pi Camera (CSI) o webcam USB | CSI / USB |
-| Alimentación | Batería LiPo 2S 7.4 V | — |
+| Cámara visible | Webcam USB (reemplaza a la ESP32-CAM de TechRoach) | USB |
+| ADC | ADS1115 (16 bits, 4 canales) | I2C (0x48) |
+| Temperatura y humedad | DHT22 | GPIO (1 hilo) |
+| Gases inflamables | MQ-2 | ADS1115 A0 |
+| Monóxido de carbono | MQ-7 | ADS1115 A1 |
+| Luz | LDR + resistencia de 10 kΩ | ADS1115 A2 |
+| Presencia | PIR HC-SR501 | GPIO |
+| Impactos | Módulo piezoeléctrico / vibración | GPIO |
+| Alertas | Zumbador activo + LED rojo | GPIO |
+| Iluminación | Tira o LED de potencia con MOSFET | GPIO |
+| Control manual | Control Xbox One / Series | USB o Bluetooth |
+| Alimentación | Batería LiPo 2S 7.4 V (leída con ADS1115 A3) | — |
 | Opcional | ESP32-S3 | UART |
 
 ### Tabla de pines (numeración BCM)
@@ -197,11 +230,20 @@ inspeccion-tableros/
 | Encoder izq. B | **GPIO16** | 36 | Encoder izq. C2 | Pull-up interno |
 | Encoder der. A | **GPIO5** | 29 | Encoder der. C1 | Pull-up interno |
 | Encoder der. B | **GPIO6** | 31 | Encoder der. C2 | Pull-up interno |
-| I2C SDA | **GPIO2** | 3 | MLX90640 SDA | I2C-1 a 400 kHz |
-| I2C SCL | **GPIO3** | 5 | MLX90640 SCL | |
+| I2C SDA | **GPIO2** | 3 | MLX90640 SDA y ADS1115 SDA | I2C-1 a 400 kHz (bus compartido) |
+| I2C SCL | **GPIO3** | 5 | MLX90640 SCL y ADS1115 SCL | |
+| DHT22 datos | **GPIO4** | 7 | DHT22 pin 2 | Pull-up de 10 kΩ a 3.3 V |
+| PIR | **GPIO25** | 22 | HC-SR501 OUT | Salida de 3.3 V |
+| Piezoeléctrico | **GPIO20** | 38 | Módulo DO | Si el módulo es de 5 V, usar divisor |
+| Zumbador | **GPIO21** | 40 | Transistor NPN → zumbador | Alerta acústica |
+| LED de alarma | **GPIO19** | 35 | LED rojo + 330 Ω | Alerta visual |
+| Iluminación | **GPIO26** | 37 | Compuerta del MOSFET | Se enciende con poca luz (LDR) |
+| MQ-2 DO (respaldo) | GPIO7 | 26 | MQ-2 DO | Solo sin ADS1115, con divisor a 3.3 V |
+| MQ-7 DO (respaldo) | GPIO8 | 24 | MQ-7 DO | Solo sin ADS1115, con divisor a 3.3 V |
 | UART TX | GPIO14 | 8 | ESP32 RX | Solo si se usa el ESP32 |
 | UART RX | GPIO15 | 10 | ESP32 TX | Solo si se usa el ESP32 |
-| 3.3 V | — | 1 | MLX90640 VIN, encoders VCC | Los encoders deben alimentarse a 3.3 V |
+| 3.3 V | — | 1, 17 | MLX90640, ADS1115, DHT22, encoders | Los encoders deben alimentarse a 3.3 V |
+| 5 V | — | 2, 4 | MQ-2, MQ-7 (calefactor), PIR | Los MQ consumen ~150 mA cada uno |
 | GND | — | 6, 9, 14… | GND común | Unir GND de la Pi, el L298N y la batería |
 
 ### Alimentación recomendada
@@ -213,6 +255,24 @@ inspeccion-tableros/
 
  GND batería ═══ GND L298N ═══ GND Raspberry Pi (tierra común obligatoria)
 ```
+
+### Conexión de los sensores analógicos (ADS1115)
+
+La Raspberry Pi **no tiene entradas analógicas** (el ESP32 de TechRoach sí), por eso los sensores analógicos se leen con un ADS1115 alimentado a **3.3 V**:
+
+```
+ MQ-2 AO ──[10 kΩ]──┬── A0         MQ-7 AO ──[10 kΩ]──┬── A1
+                  [20 kΩ]                          [20 kΩ]
+                    │                                │
+                   GND                              GND        (0-5 V → 0-3.3 V; config: divisor_mq = 1.5)
+
+ 3.3 V ──[LDR]──┬── A2             LiPo + ──[10 kΩ]──┬── A3
+             [10 kΩ]                              [4.7 kΩ]
+                │                                    │
+               GND                                  GND        (8.4 V → 2.7 V; config: divisor_bateria = 3.128)
+```
+
+> Si no hay ADS1115, el robot sigue funcionando: las alarmas de gas usan la salida digital **DO** de los módulos MQ (umbral fijado con su potenciómetro). En ese caso no hay ppm, luz ni batería.
 
 > ⚠️ **No alimentes la Pi desde el regulador de 5 V del L298N**: no da suficiente corriente y el ruido de los motores reinicia la Pi. **Los encoders a 3.3 V**: los GPIO de la Pi no toleran 5 V.
 
@@ -277,11 +337,12 @@ Abre **http://localhost:5000**. La interfaz es idéntica a la de la Pi; solo apa
 |---|---|
 | **Inspección en vivo** (`/`) | Video y térmico lado a lado. *Superponer térmico* coloca el mapa sobre el video y el control deslizante ajusta la opacidad. Pasa el cursor (o el dedo) sobre la imagen para leer la temperatura de ese punto. También muestra el joystick, la telemetría de las orugas y una evaluación ΔT preliminar. |
 | **Captura** (`/captura`) | Escribe el ID del tablero, elige la referencia (mediana, *clic en imagen* o valor manual), agrega notas y presiona **Capturar hallazgo**. *Congelar* detiene la imagen para elegir la referencia con calma; se guarda exactamente ese cuadro. |
+| **Ambiente** (`/ambiente`) | Sensores de TechRoach en vivo, gráficas de 10 min, respuestas automáticas, calibración de los MQ, guía del control Xbox, registro de eventos y (en simulación) botones para provocar eventos. |
 | **Historial** (`/historial`) | Filtros por tablero, clasificación y fechas. Gráfica de tendencia de temperatura máxima por tablero (con ΔT cuando se filtra un solo tablero). Detalle, PDF y eliminación. |
 | **Reporte** (`/reporte`) | Elige una inspección, revisa la vista previa y genera o descarga el PDF. Aquí también se configuran el logo, la empresa, el título y el responsable. |
 | **Configuración** (`/configuracion`) | Parámetros de movimiento, análisis térmico, alineación térmico/visible, ESP32, diagnóstico de componentes y tabla de pines. |
 
-**Controles:** joystick táctil · **W A S D** o flechas · **Espacio = PARO DE EMERGENCIA** · botón rojo **PARO**, siempre visible.
+**Controles:** joystick táctil · **W A S D** o flechas · **control Xbox** · **Espacio** o **B** del control = PARO DE EMERGENCIA · botón rojo **PARO**, siempre visible.
 
 ---
 
@@ -293,6 +354,8 @@ Abre **http://localhost:5000**. La interfaz es idéntica a la de la Pi; solo apa
 | **Pérdida de conexión** | Si se desconecta el navegador que maneja el robot, hay paro inmediato (`socket_eventos.py`). La pestaña oculta o la ventana sin foco también liberan los controles. |
 | **Paro de emergencia** | Botón rojo grande en todas las páginas y tecla Espacio. Queda **enclavado**: ignora comandos hasta que se presiona *Rearmar* con confirmación. Se envía por Socket.IO y también por HTTP como respaldo. |
 | **Velocidad máxima** | Configurable; por defecto **0.3 m/s** (ISO 3691-4). La interfaz advierte si se configura un valor mayor. El ciclo de trabajo también se limita, aunque falle el encoder. |
+| **Alarma de gas** | Detención inmediata. Mientras dure, solo se permite retroceder (configurable a bloqueo total). Se activan el zumbador y el LED rojo. |
+| **Control Xbox** | B = paro de emergencia. La desconexión del control provoca paro inmediato. |
 | **Rampa** | La aceleración y la desaceleración normales se limitan a `aceleracion_m_s2` (0.4 m/s² por defecto). |
 | **Arranque y cierre** | Los motores se ponen en cero al crear los drivers, al crear el controlador, al recibir SIGTERM/SIGINT, en `atexit` y al detener el servicio. |
 | **Fallas de componentes** | Si un componente no inicia, se reemplaza por un driver nulo (el motor nulo nunca se mueve) y la falla aparece en el diagnóstico. |
@@ -325,6 +388,77 @@ Los umbrales se configuran desde la interfaz. Con valores continuos se aplica: `
 
 ---
 
+## Sensores ambientales (TechRoach)
+
+Se reutilizan los sensores del proyecto anterior, ahora conectados a la Raspberry Pi. Se mantienen las mismas reglas de respuesta automática y se agregan protecciones contra falsas alarmas, que fueron el principal desafío técnico reportado en TechRoach.
+
+| Sensor | Variable | Respuesta automática |
+|---|---|---|
+| **DHT22** | Temperatura y humedad | Humedad > 80 % → velocidad al 50 %. La temperatura se usa además como temperatura reflejada para la corrección de emisividad del MLX90640. |
+| **MQ-2** | Gases inflamables (ppm estimadas) | Alarma → alerta visual/acústica y detención. Mientras dure, solo se permite **retroceder** para salir de la zona. |
+| **MQ-7** | Monóxido de carbono (ppm estimadas) | Igual que el MQ-2. |
+| **PIR** | Presencia de personas | Velocidad al 40 % durante 10 s. Solo se evalúa con el robot detenido, porque un PIR en movimiento da falsos positivos. |
+| **Piezoeléctrico** | Impactos y caídas | Detención y registro del evento. |
+| **LDR** | Luz | Enciende la iluminación propia del robot. |
+
+**Medidas contra falsas alarmas de los MQ:**
+- **Calentamiento** de 3 min sin alarmas (10 s en simulación).
+- **Filtro de mediana** de 5 muestras.
+- **Confirmación** con 3 lecturas seguidas sobre el umbral.
+- **Histéresis** del 10 % para liberar la alarma.
+
+**Conversión a ppm:** `Rs = RL·(Vc − Vout)/Vout`, luego `ppm = a·(Rs/R0)^b` con las curvas de la hoja de datos. **R0 se calibra en aire limpio**, desde *Ambiente → Calibrar MQ en aire limpio* o con `scripts/pruebas/calibrar_gases.py`. Las ppm son **estimaciones**: los MQ no son instrumentos certificados.
+
+**Cambios respecto a TechRoach:**
+
+| TechRoach (ESP32) | Este proyecto (Raspberry Pi) |
+|---|---|
+| Lecturas analógicas con el ADC del ESP32 | ADS1115 por I2C |
+| MQTT + LabVIEW | Interfaz web propia (página **Ambiente**: gráficas, eventos, calibración) |
+| ESP32-CAM | Webcam USB |
+| PIR → maniobra evasiva | PIR → velocidad reducida. Un PIR no indica dirección, así que una maniobra evasiva automática sería insegura; queda como mejora futura con visión artificial. |
+
+Cada captura de hallazgo guarda también la temperatura, la humedad y los gases del momento, y el reporte PDF los incluye. En **modo simulación**, la página Ambiente tiene botones para **provocar eventos** (gas, CO, humedad, presencia, impacto, oscuridad) y demostrar las respuestas automáticas.
+
+---
+
+## Control Xbox
+
+Solución temporal; como mejora futura se diseñará y fabricará un control dedicado. Funciona de dos maneras, y se pueden usar ambas:
+
+1. **Conectado a la computadora o celular** que muestra la interfaz (USB o Bluetooth). Lo lee el navegador (Gamepad API) y no requiere configuración: conéctalo y presiona cualquier botón.
+2. **Conectado directo a la Raspberry Pi** por USB (driver `xpad`) o por Bluetooth. Lo lee el robot con `evdev`, sin necesidad de abrir la interfaz.
+
+| Control | Acción |
+|---|---|
+| Stick izquierdo | **Modo arcade**: arriba/abajo avanza o retrocede, izquierda/derecha gira |
+| Ambos sticks (vertical) | **Modo tanque**: cada stick mueve su oruga de forma independiente |
+| **B** | **PARO DE EMERGENCIA** |
+| Menú ≡ (mantener 1.5 s) | Rearmar después de un paro |
+| Vista ⧉ | Cambiar el modo arcade ↔ tanque |
+| LB / RB | Limitador de velocidad −25 % / +25 % |
+| A | Captura rápida (usa el último tablero capturado) |
+
+**Seguridad:**
+- Con el stick fuera de la zona muerta se envían comandos a 10–20 Hz, que alimentan el watchdog de 500 ms.
+- Al soltar el stick, el robot se detiene.
+- Si el control se desconecta (batería, alcance, cable), hay **paro inmediato**.
+- El control vibra cuando hay un paro o una alarma de gas.
+
+**Emparejar por Bluetooth con la Pi (una vez):**
+```bash
+bluetoothctl
+  power on
+  agent on
+  scan on              # mantener presionado el botón de emparejar del control
+  pair XX:XX:XX:XX:XX:XX
+  trust XX:XX:XX:XX:XX:XX
+  connect XX:XX:XX:XX:XX:XX
+```
+Verifica el control con `python scripts/pruebas/probar_control_xbox.py`. Si por Bluetooth los botones salen cambiados, instala el driver [xpadneo](https://github.com/atar-axis/xpadneo). Por USB funciona sin configuración.
+
+---
+
 ## Calibración del diámetro de la rueda
 
 El diámetro de la rueda motriz es **variable** (`traccion.diametro_rueda_m`) y se ajusta desde *Configuración*. Si no conoces el valor, calibra el **diámetro efectivo**, que incluye el grosor de la oruga:
@@ -354,7 +488,9 @@ python -m pytest
 | `tests/test_clasificacion.py` | Rangos ΔT de ANSI/NETA (incluidos los límites), colores, umbrales personalizados o inválidos |
 | `tests/test_watchdog.py` | Expiración a los 500 ms (reloj simulado), una sola acción por expiración, paro inmediato sin rampa, evento solo si había movimiento |
 | `tests/test_control.py` | Mezcla skid steering, límite de velocidad, rampa, anti-windup, paro enclavado, límite de duty con encoder roto, lazo cerrado con motores asimétricos |
-| `tests/test_sistema_simulado.py` | Sistema completo: páginas, video, térmico, captura, historial, CSV, PDF, configuración, Socket.IO, paro por desconexión y cierre seguro |
+| `tests/test_ambiente.py` | Conversión voltaje → ppm de los MQ, filtro de mediana, confirmaciones, histéresis, calentamiento, decodificación del DHT22, respuestas automáticas |
+| `tests/test_gamepad.py` | Zona muerta, curva expo, modos arcade y tanque, limitador, comandos por oruga, reducción de velocidad y bloqueo por gas |
+| `tests/test_sistema_simulado.py` | Sistema completo: páginas, video, térmico, captura, historial, CSV, PDF, configuración, Socket.IO, paro por desconexión, cierre seguro, alarma de gas, humedad, impacto, control Xbox, calibración de gases |
 
 ### Pruebas de cada componente en la Pi
 
@@ -364,7 +500,10 @@ Detén primero el servicio (`sudo systemctl stop robot-inspeccion`). Todos los s
 .venv/bin/python scripts/pruebas/probar_motores.py      # cada motor adelante/atrás (robot levantado)
 .venv/bin/python scripts/pruebas/probar_encoders.py     # conteos, rpm y m/s en vivo
 .venv/bin/python scripts/pruebas/probar_mlx90640.py     # frecuencia real, mapa ASCII y PNG
-.venv/bin/python scripts/pruebas/probar_camara.py       # detección, fps y foto JPEG
+.venv/bin/python scripts/pruebas/probar_camara.py       # webcam: detección, fps y foto JPEG
+.venv/bin/python scripts/pruebas/probar_sensores.py     # ADS1115, DHT22, PIR, piezo, zumbador, LEDs
+.venv/bin/python scripts/pruebas/probar_control_xbox.py # sticks, botones y comando resultante
+.venv/bin/python scripts/pruebas/calibrar_gases.py      # R0 de MQ-2 y MQ-7 en aire limpio
 .venv/bin/python scripts/pruebas/calibrar_diametro.py   # diámetro efectivo de la rueda
 ```
 
@@ -376,7 +515,7 @@ El módulo está **desactivado por defecto** (`esp32.habilitado: false`). El rob
 
 | Dirección | Mensaje | Uso |
 |---|---|---|
-| ESP32 → Pi | `{"t":"bateria","v":7.62}` | Muestra el voltaje y el porcentaje de la LiPo en la barra de estado |
+| ESP32 → Pi | `{"t":"bateria","v":7.62}` | Voltaje de la LiPo si no hay ADS1115 |
 | ESP32 → Pi | `{"t":"paro"}` | Botón de paro físico → paro de emergencia |
 | ESP32 → Pi | `{"t":"latido"}` | Mantiene la conexión activa |
 | Pi → ESP32 | `{"t":"estado","paro":false,"v_izq":0.1,"v_der":0.1}` | Estado a 2 Hz |
@@ -402,10 +541,14 @@ En `firmware/esp32_ejemplo/esp32_ejemplo.ino` hay un sketch de ejemplo con divis
 | GET | `/api/inspecciones/<id>/matriz.csv` | Matriz térmica 24×32 en CSV |
 | GET | `/api/tendencia` | Series de T máx y ΔT por tablero |
 | POST | `/api/paro`, `/api/rearmar` | Respaldo HTTP del paro |
+| GET | `/api/ambiente` | Lecturas actuales e historial de 10 min de los sensores |
+| GET | `/api/eventos` | Registro de eventos (alarmas, impactos, paros) |
+| POST | `/api/sensores/calibrar` | Calibra R0 de los MQ en aire limpio |
+| POST | `/api/sim/evento` | Provoca un evento simulado: `{evento: gas|co|humedad|presencia|impacto|oscuridad}` |
 
 Eventos de Socket.IO:
-- Del navegador al robot: `mover {x, y}`, `detener`, `paro`, `rearmar`.
-- Del robot al navegador: `termico`, `estado`, `seguridad`, `config`.
+- Del navegador al robot: `mover {x, y}`, `orugas {izq, der}`, `detener`, `paro`, `rearmar`, `captura_rapida`.
+- Del robot al navegador: `termico`, `estado`, `seguridad`, `ambiente_evento`, `config`, `aviso`.
 
 ---
 
@@ -431,7 +574,13 @@ Eventos de Socket.IO:
 | El motor no arranca con el joystick suave | Sube `motores.duty_minimo` (prueba con `probar_motores.py --zona-muerta`) |
 | La superposición no coincide | Ajusta escala y desplazamiento en *Configuración → Alineación* |
 | `robot.local` no resuelve (Windows) | Usa la IP de la Pi (`hostname -I`) o instala Bonjour |
-| Batería "sin dato" | Normal sin ESP32: la Pi no tiene ADC. Habilita el ESP32 con un divisor de voltaje. |
+| Batería "sin dato" | Falta el ADS1115 o el divisor en A3. Revisa `sudo i2cdetect -y 1` (debe aparecer `48`). |
+| Gases "sin dato" | Sin ADS1115: solo se usan las salidas DO de los MQ (alarma sí/no, sin ppm) |
+| Falsas alarmas de gas | Espera el calentamiento, calibra R0 en aire limpio y sube "Lecturas para confirmar" |
+| DHT22 sin lectura | Falta la resistencia pull-up de 10 kΩ a 3.3 V, o el cable es muy largo |
+| La webcam no aparece | `v4l2-ctl --list-devices`; cambia `camara_visible.indice_usb` |
+| El control Xbox no responde (navegador) | Presiona cualquier botón: el navegador solo lo expone después de una interacción |
+| El control Xbox no responde (Pi) | `probar_control_xbox.py`; el usuario debe estar en el grupo `input` |
 
 ---
 

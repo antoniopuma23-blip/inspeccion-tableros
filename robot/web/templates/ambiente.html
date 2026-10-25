@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block titulo %}Monitoreo ambiental{% endblock %}
+{% block contenido %}
+<div class="encabezado-pagina">
+  <div>
+    <h1>Monitoreo ambiental</h1>
+    <p>Sensores del proyecto TechRoach: temperatura y humedad (DHT22), gases (MQ-2, MQ-7), presencia (PIR), impactos (piezoeléctrico) y luz (LDR).</p>
+  </div>
+</div>
+
+<article class="panel" style="margin-bottom:16px">
+  <header class="panel-cab"><h2>Lecturas en tiempo real</h2><span class="der etiqueta" id="estado-respuestas"></span></header>
+  <div class="panel-cuerpo"><div class="sensores" id="sensores"></div></div>
+</article>
+
+<section class="rejilla rejilla-2" style="margin-bottom:16px">
+  <article class="panel">
+    <header class="panel-cab"><h2>Temperatura y humedad (10 min)</h2></header>
+    <div class="panel-cuerpo"><div class="contenedor-grafica" style="height:240px"><canvas id="graf-th"></canvas></div></div>
+  </article>
+  <article class="panel">
+    <header class="panel-cab"><h2>Gases MQ-2 / MQ-7 (10 min)</h2></header>
+    <div class="panel-cuerpo"><div class="contenedor-grafica" style="height:240px"><canvas id="graf-gas"></canvas></div></div>
+  </article>
+</section>
+
+<section class="rejilla rejilla-2" style="margin-bottom:16px">
+  <article class="panel">
+    <header class="panel-cab"><h2>Respuestas automáticas</h2></header>
+    <div class="panel-cuerpo">
+      <table class="tabla-criterio">
+        <tr><td>Humedad &gt; <span id="r-hum">80</span> %</td><td>Velocidad reducida al <span id="r-fh">50</span> %</td></tr>
+        <tr><td>MQ-2 o MQ-7 en alarma</td><td>Alerta visual/acústica + detención; solo retroceso</td></tr>
+        <tr><td>Presencia (PIR)</td><td>Velocidad al <span id="r-fp">40</span> % durante <span id="r-dp">10</span> s</td></tr>
+        <tr><td>Impacto (piezoeléctrico)</td><td>Detención y registro del evento</td></tr>
+        <tr><td>Poca luz (LDR)</td><td>Enciende la iluminación propia</td></tr>
+      </table>
+      <p class="ayuda" style="margin-top:10px">Contra falsas alarmas de los MQ: calentamiento inicial, filtro de mediana, confirmación con varias lecturas seguidas e histéresis. Los umbrales se ajustan en <a href="/configuracion">Configuración</a>.</p>
+      <div class="fila" style="margin-top:10px">
+        <button type="button" class="btn" id="btn-calibrar">Calibrar MQ en aire limpio</button>
+        <span class="ayuda">Con el robot en aire limpio y después del calentamiento.</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <header class="panel-cab"><h2>Control Xbox</h2><span class="der" id="estado-mando"></span></header>
+    <div class="panel-cuerpo">
+      <div class="mando-ayuda">
+        <kbd>Stick izquierdo</kbd><span><b>Modo arcade:</b> arriba/abajo avanza o retrocede, izquierda/derecha gira</span>
+        <kbd>Ambos sticks ↕</kbd><span><b>Modo tanque:</b> cada stick mueve su oruga (izquierda / derecha)</span>
+        <kbd>B</kbd><span>PARO DE EMERGENCIA</span>
+        <kbd>Menú ≡ (1.5 s)</kbd><span>Rearmar después de un paro</span>
+        <kbd>Vista ⧉</kbd><span>Cambiar modo arcade ↔ tanque</span>
+        <kbd>LB / RB</kbd><span>Limitador de velocidad −25 % / +25 %</span>
+        <kbd>A</kbd><span>Captura rápida (usa el último tablero capturado)</span>
+      </div>
+      <p class="ayuda" style="margin-top:10px">Conecta el control a esta computadora/celular (USB o Bluetooth) y presiona cualquier botón, o conéctalo directamente a la Raspberry Pi.</p>
+    </div>
+  </article>
+</section>
+
+<article class="panel" id="panel-sim" style="margin-bottom:16px" hidden>
+  <header class="panel-cab"><h2>Simulación: provocar eventos</h2><span class="der etiqueta">Solo en modo simulación, para demostrar las respuestas automáticas</span></header>
+  <div class="panel-cuerpo"><div class="botones-sim" id="botones-sim"></div></div>
+</article>
+
+<article class="panel">
+  <header class="panel-cab"><h2>Registro de eventos</h2><button type="button" class="btn btn-chico der" id="btn-eventos">Actualizar</button></header>
+  <div class="tabla-envoltura" style="max-height:420px">
+    <table class="tabla">
+      <thead><tr><th>Fecha</th><th>Tipo</th><th>Nivel</th><th>Mensaje</th></tr></thead>
+      <tbody id="tabla-eventos"><tr><td colspan="4" class="vacio">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+</article>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>window.Chart || document.write('<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"><\/script>');</script>
+<script src="{{ url_for('static', filename='js/ambiente.js') }}?v={{ version }}"></script>
+{% endblock %}

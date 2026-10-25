@@ -44,6 +44,24 @@ pines:
   uart_esp32:              # UART0 (/dev/serial0), solo si el ESP32 se habilita
     tx: 14
     rx: 15
+  # --- Sensores reutilizados del proyecto TechRoach ---------------------------
+  dht22:
+    datos: 4               # DHT22 (temperatura y humedad), pull-up 10 kΩ a 3.3 V
+  pir:
+    salida: 25             # PIR HC-SR501 (salida de 3.3 V)
+  vibracion:
+    salida: 20             # Módulo piezoeléctrico / vibración (salida digital DO)
+  iluminacion:
+    mosfet: 26             # LED de iluminación propia (MOSFET), lo controla el LDR
+  alarma:
+    buzzer: 21             # Zumbador activo (vía transistor) -> alerta acústica
+    led: 19                # LED rojo -> alerta visual
+  # Respaldo SIN ADS1115: salidas digitales DO de los módulos (comparador del
+  # propio módulo). ¡Si el módulo se alimenta a 5 V, usar divisor a 3.3 V!
+  mq2_digital:
+    salida: 7
+  mq7_digital:
+    salida: 8
 
 # -----------------------------------------------------------------------------
 #  Motores DC + driver L298N
@@ -99,26 +117,31 @@ camara_termica:
   i2c_frecuencia_hz: 400000      # Requiere dtparam=i2c_arm_baudrate=400000
   emisividad: 0.95               # Superficies pintadas/oxidadas ~0.95
   temp_reflejada_c: 25.0         # Temperatura aparente reflejada (ambiente)
-  rotar_180: false               # Si el sensor está montado de cabeza
+  # Si hay lectura válida del DHT22 se usa como temperatura reflejada
+  # (aproximación: temperatura ambiente ≈ temperatura reflejada)
+  usar_dht22_como_reflejada: true
+  rotar_180: false              # Si el sensor está montado de cabeza
   espejo_horizontal: false
 
 # -----------------------------------------------------------------------------
-#  Cámara visible (Pi Camera con picamera2 o webcam USB con OpenCV)
+#  Cámara visible: webcam USB (OpenCV). Reemplaza a la ESP32-CAM de TechRoach.
+#  También se soporta un módulo Pi Camera (tipo: picamera2 o auto).
 # -----------------------------------------------------------------------------
 camara_visible:
-  tipo: "auto"                   # auto | picamera2 | usb
-  indice_usb: 0
+  tipo: "usb"                    # usb | auto | picamera2
+  indice_usb: -1                 # -1 = buscar la primera webcam (/dev/video0..3)
   ancho: 640
   alto: 480
   fps: 12
   calidad_jpeg: 70
 
 # Alineación del térmico sobre el visible (fracción del cuadro visible que
-# cubre el térmico). Pi Camera v2: FOV 62.2°x48.8° -> 55/62.2 ≈ 0.88 y
-# 35/48.8 ≈ 0.72. Ajustar si se usa otra cámara.
+# cubre el térmico) = FOV térmico / FOV webcam. Webcam típica de 60°x45°:
+# 55/60 ≈ 0.92 y 35/45 ≈ 0.78. Ajustar según la webcam (valores > 1 si la
+# webcam tiene un FOV más angosto que el MLX90640).
 superposicion:
-  escala_x: 0.88
-  escala_y: 0.72
+  escala_x: 0.92
+  escala_y: 0.78
   desplazamiento_x: 0.0          # Fracción del ancho (-0.5 a 0.5)
   desplazamiento_y: 0.0          # Fracción del alto  (-0.5 a 0.5)
 
@@ -135,10 +158,101 @@ interfaz:
   paleta: "ironbow"              # ironbow | arcoiris | grises | lava
 
 # -----------------------------------------------------------------------------
-#  Batería LiPo 2S (7.4 V). Solo hay lectura si el ESP32 la reporta.
+#  Batería LiPo 2S (7.4 V). Se lee con el canal A3 del ADS1115 (divisor
+#  10 kΩ / 4.7 kΩ) o, si el ESP32 está habilitado, desde el ESP32.
 # -----------------------------------------------------------------------------
 bateria:
   celdas: 2
+
+# =============================================================================
+#  SENSORES AMBIENTALES (reutilizados del proyecto TechRoach)
+# =============================================================================
+#  La Raspberry Pi NO tiene entradas analógicas: los sensores analógicos
+#  (MQ-2, MQ-7, LDR y batería) se leen con un ADS1115 (ADC de 16 bits por
+#  I2C, dirección 0x48) en el mismo bus que el MLX90640.
+# -----------------------------------------------------------------------------
+sensores:
+  habilitados: true
+  periodo_s: 0.5                 # Lectura de ADC y entradas digitales (2 Hz)
+
+  ads1115:
+    habilitado: true
+    direccion: 0x48
+    bus_i2c: 1
+    canales:                     # A0..A3
+      mq2: 0
+      mq7: 1
+      ldr: 2
+      bateria: 3
+    # Las salidas AO de los módulos MQ (0-5 V) pasan por un divisor
+    # 10 kΩ / 20 kΩ antes del ADS1115 (alimentado a 3.3 V): V_sensor = V_adc × 1.5
+    divisor_mq: 1.5
+    divisor_bateria: 3.128       # (10 kΩ + 4.7 kΩ) / 4.7 kΩ
+
+  dht22:
+    habilitado: true
+    periodo_s: 3.0               # El DHT22 admite como máximo 1 lectura cada 2 s
+
+  mq2:                           # Gases inflamables (curva de GLP de la hoja de datos)
+    rl_kohm: 1.0                 # Resistencia de carga del módulo (1 kΩ o 10 kΩ)
+    vc: 5.0                      # Voltaje de alimentación del sensor
+    r0_kohm: 10.0                # Resistencia en aire limpio: CALIBRAR
+    razon_aire_limpio: 9.83      # Rs/R0 en aire limpio (hoja de datos)
+    curva_a: 574.25              # ppm = a · (Rs/R0)^b
+    curva_b: -2.222
+    advertencia_ppm: 500
+    alarma_ppm: 1000             # ~5 % del LIE del GLP
+
+  mq7:                           # Monóxido de carbono
+    rl_kohm: 1.0
+    vc: 5.0
+    r0_kohm: 10.0                # CALIBRAR en aire limpio
+    razon_aire_limpio: 27.5
+    curva_a: 99.042
+    curva_b: -1.518
+    advertencia_ppm: 35          # Valor de referencia de exposición a CO
+    alarma_ppm: 100
+
+  ldr:
+    invertir: false              # true si el voltaje BAJA con más luz
+    umbral_oscuridad_pct: 25     # Debajo de este % de luz se enciende el LED
+    histeresis_pct: 8
+
+  # Anti falsas alarmas (principal desafío de TechRoach)
+  calentamiento_s: 180           # Los MQ no generan alarmas al arrancar
+  muestras_filtro: 5             # Filtro de mediana
+  confirmaciones: 3              # Lecturas seguidas sobre el umbral para alarmar
+  histeresis_pct: 10             # La alarma se libera 10 % por debajo del umbral
+
+# -----------------------------------------------------------------------------
+#  RESPUESTAS AUTOMÁTICAS (mismas reglas de TechRoach)
+# -----------------------------------------------------------------------------
+respuestas:
+  humedad_alta_pct: 80           # HR > 80 % -> reducir velocidad
+  factor_humedad: 0.5
+  # Gas MQ-2 o CO MQ-7 en alarma -> alerta visual/acústica + detención.
+  # Mientras dure la alarma solo se permite RETROCEDER para salir de la zona.
+  permitir_retroceso_en_gas: true
+  # PIR: presencia de personas -> velocidad reducida durante un tiempo.
+  # (El PIR solo es confiable con el robot detenido: se evalúa en reposo.)
+  factor_presencia: 0.4
+  duracion_presencia_s: 10
+  # Piezoeléctrico: impacto o caída -> detención y registro del evento
+  detener_por_impacto: true
+  buzzer: true
+
+# -----------------------------------------------------------------------------
+#  CONTROL XBOX (temporal; a futuro, control dedicado para el proyecto)
+# -----------------------------------------------------------------------------
+#  Funciona de dos formas (se pueden usar ambas):
+#   1) En el navegador (Gamepad API): el control se conecta a la PC/celular
+#      que muestra la interfaz. No requiere configuración.
+#   2) Directo en la Raspberry Pi (USB o Bluetooth), leído con evdev.
+control_xbox:
+  habilitado_pi: true            # Buscar un control conectado a la Pi
+  modo: "arcade"                 # arcade (stick izq.) | tanque (un stick por oruga)
+  zona_muerta: 0.15
+  expo: 0.35                     # Curva de respuesta: más fino cerca del centro
 
 # -----------------------------------------------------------------------------
 #  ESP32-S3 opcional por UART (JSON por línea). DESACTIVADO por defecto:

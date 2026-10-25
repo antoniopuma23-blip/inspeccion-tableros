@@ -3,6 +3,8 @@
 Navegador → servidor
     ``mover``      {x, y} en [-1, 1]. Se envía cada 100 ms mientras hay
                    movimiento; también alimenta el watchdog.
+    ``orugas``     {izq, der} en [-1, 1]: modo tanque del control Xbox.
+    ``captura_rapida``  botón A del control Xbox.
     ``detener``    suelta el joystick (paro normal).
     ``paro``       PARO DE EMERGENCIA (enclavado).
     ``rearmar``    libera el paro de emergencia.
@@ -12,6 +14,8 @@ Servidor → navegador
     ``estado``     batería, velocidades, CPU, temperatura (2 Hz).
     ``seguridad``  avisos de paro, watchdog, desconexión.
     ``config``     configuración actualizada.
+    ``ambiente_evento``  alarmas y eventos de los sensores de TechRoach.
+    ``aviso``      mensajes informativos (p. ej. captura rápida).
 
 Seguridad ante desconexión: si se desconecta el navegador que estaba
 manejando el robot (el "piloto"), los motores se detienen de inmediato. El
@@ -40,6 +44,8 @@ def registrar_eventos(socketio: SocketIO, robot) -> None:
     robot.suscribir("termico", lambda datos: socketio.emit("termico", datos))
     robot.suscribir("estado", lambda datos: socketio.emit("estado", datos))
     robot.suscribir("seguridad", lambda datos: socketio.emit("seguridad", datos))
+    for evento in ("ambiente_evento", "config", "nueva_inspeccion", "aviso"):
+        robot.suscribir(evento, lambda datos, ev=evento: socketio.emit(ev, datos))
 
     @socketio.on("connect")
     def conectar(_auth=None):
@@ -75,6 +81,24 @@ def registrar_eventos(socketio: SocketIO, robot) -> None:
         with bloqueo:
             estado["piloto"] = request.sid
         return {"ok": robot.comando_movimiento(x, y)}
+
+    @socketio.on("orugas")
+    def orugas(datos):
+        try:
+            izq, der = float(datos.get("izq", 0)), float(datos.get("der", 0))
+        except (AttributeError, TypeError, ValueError):
+            return {"ok": False}
+        with bloqueo:
+            estado["piloto"] = request.sid
+        return {"ok": robot.comando_mando("tanque", izq, der)}
+
+    @socketio.on("captura_rapida")
+    def captura_rapida(_datos=None):
+        try:
+            insp = robot.captura_rapida()
+        except (ValueError, RuntimeError) as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "id": insp["id"], "tablero": insp["tablero"]}
 
     @socketio.on("detener")
     def detener(_datos=None):

@@ -73,6 +73,7 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: .01em; }
   border: 1px solid transparent;
 }
 .navegacion a:hover { color: var(--texto); background: var(--panel-2); text-decoration: none; }
+.navegacion .nombre-corto { display: none; }
 .navegacion a.activa { color: var(--texto); background: var(--panel-3); border-color: var(--borde-fuerte); box-shadow: inset 0 -2px 0 var(--acento); }
 
 /* ------------------------------------------------------------ Barra estado */
@@ -99,8 +100,9 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: .01em; }
 .chip-hora { margin-left: auto; }
 
 /* ------------------------------------------------------------ Banda paro */
+/* Franjas de paro y de alarma ambiental: siempre visibles bajo la cabecera */
+.bandas { position: sticky; top: 58px; z-index: 25; }
 .banda-paro {
-  position: sticky; top: 58px; z-index: 25;
   display: flex; align-items: center; gap: 12px; padding: 10px 20px;
   background: repeating-linear-gradient(-45deg, #b3261e 0 18px, #9b1f18 18px 36px);
   color: #fff; font-size: 14.5px; box-shadow: var(--sombra);
@@ -109,6 +111,18 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: .01em; }
 .banda-paro .ico { width: 22px; height: 22px; }
 .banda-paro span { flex: 1; }
 @keyframes parpadeo { from { filter: brightness(1); } to { filter: brightness(1.18); } }
+
+/* ------------------------------------------------------------ Banda ambiental */
+.banda-ambiente {
+  display: flex; align-items: center; gap: 10px; padding: 9px 20px;
+  background: #2a2510; border-bottom: 1px solid rgba(241, 196, 15, .45);
+  color: #ffe08a; font-size: 14px; font-weight: 550;
+}
+.banda-ambiente .ico { width: 20px; height: 20px; flex: none; }
+.banda-ambiente.alarma {
+  background: repeating-linear-gradient(-45deg, #8f5a00 0 18px, #7a4c00 18px 36px);
+  color: #fff; animation: parpadeo 1s ease-in-out infinite alternate;
+}
 
 /* ------------------------------------------------------------ Contenido */
 .contenido { padding: 18px 20px 140px; max-width: 1480px; margin: 0 auto; }
@@ -367,6 +381,27 @@ table.tabla { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .aviso.error { border-left-color: var(--peligro); }
 @keyframes entrar { from { opacity: 0; transform: translateY(-6px); } }
 
+/* ------------------------------------------------------------ Sensores ambientales */
+.sensores { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.sensor {
+  position: relative; padding: 11px 12px; border-radius: 9px;
+  background: #0c1117; border: 1px solid var(--borde); border-left: 4px solid var(--c, var(--borde-fuerte));
+}
+.sensor span { display: block; color: var(--tenue); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; }
+.sensor b { display: block; font: 650 20px var(--mono); margin-top: 3px; }
+.sensor small { display: block; color: var(--tenue); font-size: 11.5px; margin-top: 2px; }
+.sensor[data-nivel="advertencia"] { --c: var(--aviso); }
+.sensor[data-nivel="alarma"] { --c: var(--peligro); background: rgba(231, 76, 60, .12); }
+.sensor[data-nivel="ok"] { --c: var(--ok); }
+.sensor[data-nivel="info"] { --c: var(--info); }
+.botones-sim { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.mando-ayuda { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 13px; }
+.mando-ayuda kbd { font: 650 11.5px var(--mono); padding: 2px 7px; border-radius: 5px; background: #0c1117; border: 1px solid var(--borde-fuerte); white-space: nowrap; justify-self: start; }
+.nivel-evento { font: 650 11px var(--mono); text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: #2a3646; }
+.nivel-evento.alarma { background: var(--peligro); color: #fff; }
+.nivel-evento.advertencia { background: var(--aviso); color: #111; }
+.nivel-evento.normal { background: var(--ok); color: #111; }
+
 /* ------------------------------------------------------------ Responsivo */
 @media (max-width: 1100px) {
   .rejilla-captura, .rejilla-control { grid-template-columns: 1fr; }
@@ -389,10 +424,14 @@ table.tabla { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   }
   .navegacion a { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 10.5px; flex: 1; border-radius: 8px; }
   .navegacion a .ico { width: 21px; height: 21px; }
+  .navegacion .nombre-largo { display: none; }
+  .navegacion .nombre-corto { display: inline; }
+  .banda-ambiente { padding: 9px 12px; font-size: 13px; }
   .navegacion a.activa { box-shadow: inset 0 2px 0 var(--acento); background: transparent; border-color: transparent; color: var(--acento); }
   .barra-estado { padding: 6px 12px; }
   .chip .chip-etq { display: none; }
-  .banda-paro { top: 52px; padding: 10px 12px; font-size: 13px; }
+  .bandas { top: 52px; }
+  .banda-paro { padding: 10px 12px; font-size: 13px; }
   .contenido { padding: 12px 12px calc(var(--alto-tabbar) + 130px); }
   .rejilla-2, .rejilla-3, .config-rejilla { grid-template-columns: 1fr; }
   .lecturas { grid-template-columns: repeat(2, minmax(0, 1fr)); }

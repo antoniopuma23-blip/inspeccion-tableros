@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from ..config import Configuracion
 from .base import (CamaraTermicaNula, CamaraVisibleNula, DriverCamaraTermica,
                    DriverCamaraVisible, DriverEncoders, DriverMotores,
-                   EncodersNulos, MotoresNulos)
+                   DriverSensoresAmbiente, EncodersNulos, MotoresNulos,
+                   SensoresAmbienteNulos)
 
 log = logging.getLogger(__name__)
 
@@ -34,12 +34,12 @@ class ConjuntoDrivers:
     termica: DriverCamaraTermica
     visible: DriverCamaraVisible
     simulacion: bool
-    bateria_sim: Any = None
+    ambiente: DriverSensoresAmbiente = field(default_factory=lambda: SensoresAmbienteNulos("No configurados"))
     extras: dict = field(default_factory=dict)
 
     def cerrar(self) -> None:
         """Cierra todo; los motores primero y en cero."""
-        for nombre in ("motores", "encoders", "termica", "visible"):
+        for nombre in ("motores", "encoders", "termica", "visible", "ambiente"):
             drv = getattr(self, nombre)
             try:
                 if nombre == "motores":
@@ -59,7 +59,7 @@ def crear_simulados(cfg: Configuracion) -> ConjuntoDrivers:
     from .simulados import (BateriaSimulada, CamaraTermicaSimulada,
                             CamaraVisibleSimulada, EncodersSimulados,
                             EscenaTablero, ModeloTraccionSimulado,
-                            MotoresSimulados)
+                            MotoresSimulados, SensoresAmbienteSimulados)
 
     t, m, cv = cfg.seccion("traccion"), cfg.seccion("motores"), cfg.seccion("camara_visible")
     modelo = ModeloTraccionSimulado(
@@ -79,7 +79,7 @@ def crear_simulados(cfg: Configuracion) -> ConjuntoDrivers:
         visible=CamaraVisibleSimulada(escena, modelo, cv.get("ancho", 640), cv.get("alto", 480),
                                       cv.get("fps", 12)),
         simulacion=True,
-        bateria_sim=bateria,
+        ambiente=SensoresAmbienteSimulados(lambda: cfg.seccion("sensores"), bateria, modelo),
         extras={"modelo": modelo, "escena": escena},
     )
 
@@ -138,13 +138,28 @@ def crear_reales(cfg: Configuracion) -> ConjuntoDrivers:
     visible: DriverCamaraVisible
     try:
         from .camara_visible import detectar_camara
-        visible = detectar_camara(cv.get("tipo", "auto"), cv.get("indice_usb", 0),
+        visible = detectar_camara(cv.get("tipo", "usb"), cv.get("indice_usb", -1),
                                   cv.get("ancho", 640), cv.get("alto", 480), cv.get("fps", 12))
     except Exception as ex:
         log.error("Cámara visible no disponible: %s", ex)
         visible = CamaraVisibleNula(str(ex))
 
-    return ConjuntoDrivers(motores, encoders, termica, visible, simulacion=False, extras=extras)
+    # --- Sensores ambientales de TechRoach -----------------------------------
+    ambiente: DriverSensoresAmbiente
+    if not cfg.get("sensores.habilitados", True):
+        ambiente = SensoresAmbienteNulos("Deshabilitados en config.yaml")
+    elif pi is None:
+        ambiente = SensoresAmbienteNulos("Requieren pigpiod")
+    else:
+        try:
+            from .sensores_rpi import SensoresAmbienteRPi
+            ambiente = SensoresAmbienteRPi(pi, pines, cfg.seccion("sensores"))
+        except Exception as ex:
+            log.exception("Falla al iniciar sensores ambientales")
+            ambiente = SensoresAmbienteNulos(str(ex))
+
+    return ConjuntoDrivers(motores, encoders, termica, visible, simulacion=False,
+                           ambiente=ambiente, extras=extras)
 
 
 def crear_drivers(cfg: Configuracion, simulacion: bool) -> ConjuntoDrivers:

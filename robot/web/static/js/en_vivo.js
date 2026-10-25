@@ -106,14 +106,17 @@
     el.classList.toggle("neg", f < 0);
   }
   Robot.escuchar("estado", (e) => {
-    const vmax = e.velocidad_maxima;
+    pintarSensores($("sensores"), e.ambiente);
+    const vmax = e.velocidad_maxima * (e.factor_velocidad ?? 1);
     barra("bar-izq", e.v_izq, vmax); barra("bar-der", e.v_der, vmax);
     barra("bar-ref-izq", e.ref_izq, vmax); barra("bar-ref-der", e.ref_der, vmax);
     $("val-izq").textContent = `${fmtNum(e.v_izq, 2)} m/s`;
     $("val-der").textContent = `${fmtNum(e.v_der, 2)} m/s`;
     $("val-ref-izq").textContent = `${fmtNum(e.ref_izq, 2)} m/s`;
     $("val-ref-der").textContent = `${fmtNum(e.ref_der, 2)} m/s`;
-    $("d-vmax").textContent = `${fmtNum(vmax, 2)} m/s`;
+    $("d-vmax").textContent = e.factor_velocidad < 1
+      ? `${fmtNum(vmax, 2)} m/s (reducida al ${Math.round(e.factor_velocidad * 100)} %)`
+      : `${fmtNum(vmax, 2)} m/s`;
     $("d-lazo").textContent = e.lazo_cerrado ? "Lazo cerrado (PI + encoders)" : "Lazo abierto";
     $("d-duty").textContent = `${Math.round(e.duty_izq * 100)} % / ${Math.round(e.duty_der * 100)} %`;
     $("d-paro").textContent = e.ultimo_paro || "—";
@@ -121,6 +124,8 @@
       ? '<span class="estado-comp" style="--c:var(--peligro)">Motores no disponibles</span>'
       : e.paro_emergencia
         ? '<span class="estado-comp" style="--c:var(--peligro)">Bloqueado por paro</span>'
-        : '<span class="estado-comp" style="--c:var(--ok)">Listo</span>';
+        : e.bloqueo
+          ? `<span class="estado-comp" style="--c:var(--peligro)">Alarma de gas: ${e.bloqueo === "total" ? "movimiento bloqueado" : "solo retroceso"}</span>`
+          : '<span class="estado-comp" style="--c:var(--ok)">Listo</span>';
   });
 })();

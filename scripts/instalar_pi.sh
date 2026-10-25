@@ -6,11 +6,12 @@
 #  Qué hace:
 #    1. Instala dependencias del sistema (OpenCV, NumPy y picamera2 desde apt)
 #    2. Instala pigpio (desde apt o compilándolo si no está disponible)
-#    3. Habilita I2C a 400 kHz, UART, cámara y desactiva el audio analógico
+#    3. Habilita I2C a 400 kHz (MLX90640 + ADS1115), UART y desactiva el audio analógico
 #       (comparte periférico con el PWM por hardware de GPIO18/GPIO13)
 #    4. Crea un entorno virtual de Python e instala requirements.txt
 #    5. Habilita pigpiod y crea el servicio systemd robot-inspeccion
 #    6. Cambia el hostname a "robot" y habilita mDNS (http://robot.local:5000)
+#    7. Habilita Bluetooth para el control Xbox (opcional, también funciona por USB)
 #
 #  Uso (desde la carpeta del proyecto):
 #      sudo bash scripts/instalar_pi.sh
@@ -38,13 +39,13 @@ echo "Usuario:  $USUARIO"
 echo "Boot:     $BOOT_CFG"
 
 # -----------------------------------------------------------------------------
-paso "1/6 Instalando paquetes del sistema"
+paso "1/7 Instalando paquetes del sistema"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
     python3-numpy python3-opencv python3-picamera2 python3-libcamera \
-    python3-smbus i2c-tools \
+    python3-smbus i2c-tools python3-evdev v4l-utils bluez \
     fonts-dejavu-core avahi-daemon git build-essential wget unzip
 # Herramientas de cámara (el nombre del paquete cambió entre versiones)
 apt-get install -y --no-install-recommends rpicam-apps-lite 2>/dev/null \
@@ -52,7 +53,7 @@ apt-get install -y --no-install-recommends rpicam-apps-lite 2>/dev/null \
     || aviso "No se instalaron las herramientas rpicam (opcional)"
 
 # -----------------------------------------------------------------------------
-paso "2/6 Instalando pigpio"
+paso "2/7 Instalando pigpio"
 if apt-get install -y pigpio python3-pigpio 2>/dev/null; then
     echo "pigpio instalado desde apt"
 elif command -v pigpiod >/dev/null 2>&1; then
@@ -86,7 +87,7 @@ WantedBy=multi-user.target
 EOF
 
 # -----------------------------------------------------------------------------
-paso "3/6 Configurando interfaces (I2C, UART, cámara, audio)"
+paso "3/7 Configurando interfaces (I2C, UART, cámara, audio)"
 if command -v raspi-config >/dev/null 2>&1; then
     raspi-config nonint do_i2c 0            # habilitar I2C
     raspi-config nonint do_serial_hw 0      # habilitar UART (para el ESP32 opcional)
@@ -109,10 +110,11 @@ agregar_boot "enable_uart=1"
 agregar_boot "camera_auto_detect=1"
 modprobe i2c-dev || true
 grep -q "^i2c-dev" /etc/modules || echo "i2c-dev" >> /etc/modules
-usermod -aG i2c,gpio,video,dialout "$USUARIO" || true
+# input: control Xbox (evdev) · video: webcam USB · i2c: MLX90640 y ADS1115
+usermod -aG i2c,gpio,video,dialout,input,bluetooth "$USUARIO" || true
 
 # -----------------------------------------------------------------------------
-paso "4/6 Creando entorno virtual de Python e instalando dependencias"
+paso "4/7 Creando entorno virtual de Python e instalando dependencias"
 # --system-site-packages permite usar OpenCV, NumPy y picamera2 de apt
 # (precompilados para ARM: evita compilar por horas en la Pi 3).
 sudo -u "$USUARIO" python3 -m venv --system-site-packages "$VENV"
@@ -122,7 +124,7 @@ mkdir -p "$PROYECTO/data"
 chown -R "$USUARIO":"$USUARIO" "$PROYECTO/data" "$VENV"
 
 # -----------------------------------------------------------------------------
-paso "5/6 Creando servicio systemd ($SERVICIO)"
+paso "5/7 Creando servicio systemd ($SERVICIO)"
 sed -e "s|@USUARIO@|$USUARIO|g" -e "s|@PROYECTO@|$PROYECTO|g" -e "s|@VENV@|$VENV|g" \
     "$PROYECTO/scripts/robot-inspeccion.service" > "/etc/systemd/system/$SERVICIO.service"
 systemctl daemon-reload
@@ -131,7 +133,7 @@ systemctl restart pigpiod.service
 systemctl enable "$SERVICIO.service"
 
 # -----------------------------------------------------------------------------
-paso "6/6 Configurando hostname '$HOSTNAME_ROBOT' (http://$HOSTNAME_ROBOT.local:5000)"
+paso "6/7 Configurando hostname '$HOSTNAME_ROBOT' (http://$HOSTNAME_ROBOT.local:5000)"
 ACTUAL="$(hostname)"
 if [[ "$ACTUAL" != "$HOSTNAME_ROBOT" ]]; then
     hostnamectl set-hostname "$HOSTNAME_ROBOT"
@@ -143,8 +145,17 @@ if [[ "$ACTUAL" != "$HOSTNAME_ROBOT" ]]; then
 fi
 systemctl enable --now avahi-daemon
 
+# -----------------------------------------------------------------------------
+paso "7/7 Bluetooth para el control Xbox"
+systemctl enable --now bluetooth 2>/dev/null || aviso "No se pudo habilitar bluetooth (el control puede usarse por USB)"
+# ERTM deshabilitado: mejora la compatibilidad con controles Xbox por Bluetooth
+mkdir -p /etc/modprobe.d
+echo "options bluetooth disable_ertm=1" > /etc/modprobe.d/xbox-bt.conf
+
 echo -e "\n${VERDE}Instalación completa.${NC}"
 echo "  * Reinicia para aplicar I2C/UART/audio:   sudo reboot"
 echo "  * Después del reinicio el robot arranca solo. Abre:  http://$HOSTNAME_ROBOT.local:5000"
 echo "  * Ver registros:      journalctl -u $SERVICIO -f"
 echo "  * Probar componentes: $VENV/bin/python scripts/pruebas/probar_motores.py (y los demás)"
+echo "  * Sensores TechRoach:  $VENV/bin/python scripts/pruebas/probar_sensores.py"
+echo "  * Control Xbox:        $VENV/bin/python scripts/pruebas/probar_control_xbox.py"
