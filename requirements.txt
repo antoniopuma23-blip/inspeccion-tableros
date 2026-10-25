@@ -1,0 +1,14 @@
+# Dependencias para la Raspberry Pi (instaladas por scripts/instalar_pi.sh).
+# NumPy, OpenCV y picamera2 se instalan con apt (python3-numpy, python3-opencv,
+# python3-picamera2) porque vienen precompilados para ARM; el entorno virtual
+# se crea con --system-site-packages para poder usarlos.
+flask>=3.0,<4
+flask-socketio>=5.3,<6
+simple-websocket>=1.0
+pigpio>=1.78
+adafruit-blinka>=8.0
+adafruit-circuitpython-mlx90640>=1.3
+reportlab>=4.0
+pyyaml>=6.0
+psutil>=5.9
+pyserial>=3.5

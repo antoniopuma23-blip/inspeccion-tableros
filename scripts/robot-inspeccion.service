@@ -1,0 +1,26 @@
+# Plantilla del servicio systemd. scripts/instalar_pi.sh reemplaza los
+# marcadores @USUARIO@, @PROYECTO@ y @VENV@ y la copia a /etc/systemd/system/.
+[Unit]
+Description=Robot móvil de inspección térmica de tableros eléctricos
+Wants=network-online.target pigpiod.service
+After=network-online.target pigpiod.service
+
+[Service]
+Type=simple
+User=@USUARIO@
+WorkingDirectory=@PROYECTO@
+Environment=ROBOT_SIM=0
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@VENV@/bin/python @PROYECTO@/run.py
+# SIGINT/SIGTERM -> apagado seguro (motores en cero) dentro del programa
+KillSignal=SIGTERM
+TimeoutStopSec=8
+Restart=on-failure
+RestartSec=3
+# Límite de memoria (Pi 3 B+ con 1 GB): ningún proceso por encima de 300 MB
+MemoryHigh=260M
+MemoryMax=300M
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+# Datos generados en ejecución (base de datos, capturas, reportes, config del usuario)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Sistema / editores
+.DS_Store
+.vscode/
+.idea/

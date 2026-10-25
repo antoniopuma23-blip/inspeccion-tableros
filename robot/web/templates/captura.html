@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block titulo %}Captura de hallazgos{% endblock %}
+{% block contenido %}
+<div class="encabezado-pagina">
+  <div>
+    <h1>Captura de hallazgos</h1>
+    <p>Registra imagen visible, matriz térmica y clasificación ΔT (ANSI/NETA MTS) de cada tablero.</p>
+  </div>
+</div>
+
+<section class="rejilla rejilla-captura">
+  <div class="rejilla">
+    <article class="panel">
+      <header class="panel-cab">
+        <h2>Termograma</h2>
+        <span class="indicador-vivo" id="fps-termico">— Hz</span>
+        <div class="der">
+          <span class="etiqueta" id="ayuda-clic">Referencia: mediana del cuadro</span>
+          <button type="button" class="btn btn-chico" id="btn-congelar" title="Congela la imagen para elegir la referencia con calma">Congelar</button>
+        </div>
+      </header>
+      <div class="marco-termico">
+        <div class="marco"><canvas class="lienzo" id="cv-termico"></canvas></div>
+        <canvas class="escala-color" id="cv-escala"></canvas>
+      </div>
+      <div class="lecturas">
+        <div class="lectura max"><span>Máxima</span><b id="t-max">—</b></div>
+        <div class="lectura min"><span>Mínima</span><b id="t-min">—</b></div>
+        <div class="lectura"><span>Referencia</span><b id="t-ref">—</b></div>
+        <div class="lectura cursor"><span>Cursor</span><b id="t-cursor">—</b></div>
+      </div>
+    </article>
+
+    <div class="rejilla rejilla-2">
+      <article class="panel">
+        <header class="panel-cab"><h2>Cámara visible</h2></header>
+        <div class="marco"><img id="video" src="/video.mjpg" alt="Video de la cámara visible"></div>
+      </article>
+      <article class="panel">
+        <header class="panel-cab"><h2>Posicionamiento</h2></header>
+        <div class="panel-cuerpo" id="panel-joystick"></div>
+      </article>
+    </div>
+  </div>
+
+  <article class="panel">
+    <header class="panel-cab"><h2>Datos del hallazgo</h2></header>
+    <form class="panel-cuerpo" id="form-captura" autocomplete="off">
+      <div class="tarjeta-dt" id="tarjeta-dt">
+        <div class="dt-fila"><span class="dt-etq">ΔT (máx − referencia)</span><span id="dt-clasif"></span></div>
+        <div class="dt-valor" id="dt-valor">—</div>
+        <div class="dt-detalle">
+          <div>T máx<b id="dt-max">—</b></div>
+          <div>T referencia<b id="dt-ref">—</b></div>
+          <div>Método<b id="dt-metodo">Mediana</b></div>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label for="tablero">Nombre / ID del tablero *</label>
+        <input type="text" id="tablero" list="lista-tableros" placeholder="p. ej. TD-01 Laboratorio de Potencia" required maxlength="80">
+        <datalist id="lista-tableros"></datalist>
+      </div>
+      <div class="campo">
+        <label for="ubicacion">Ubicación</label>
+        <input type="text" id="ubicacion" placeholder="Edificio, nivel, área" maxlength="120">
+      </div>
+
+      <div class="campo">
+        <span class="etiqueta">Temperatura de referencia</span>
+        <div class="segmentado" role="radiogroup">
+          <label><input type="radio" name="ref" value="mediana" checked><span>Mediana</span></label>
+          <label><input type="radio" name="ref" value="punto"><span>Clic en imagen</span></label>
+          <label><input type="radio" name="ref" value="manual"><span>Manual</span></label>
+        </div>
+        <span class="ayuda" id="ayuda-ref">La mediana del cuadro representa la temperatura de los componentes sanos.</span>
+      </div>
+      <div class="campo" id="campo-manual" hidden>
+        <label for="ref-manual">Temperatura de referencia (°C)</label>
+        <input type="number" id="ref-manual" step="0.1" value="30">
+      </div>
+
+      <div class="campo">
+        <label for="notas">Notas del inspector</label>
+        <textarea id="notas" placeholder="Componente, fase, carga aproximada, observaciones…" maxlength="2000"></textarea>
+      </div>
+
+      <button type="submit" class="btn btn-primario btn-grande" id="btn-capturar">
+        <svg class="ico"><use href="#i-camara"/></svg>Capturar hallazgo
+      </button>
+
+      <table class="tabla-criterio" id="tabla-criterio" style="margin-top:14px"></table>
+
+      <div class="resultado-captura" id="resultado" hidden></div>
+    </form>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/termico.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='js/joystick.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='js/captura.js') }}?v={{ version }}"></script>
+{% endblock %}

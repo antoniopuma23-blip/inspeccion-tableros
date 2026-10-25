@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block titulo %}Historial de inspecciones{% endblock %}
+{% block contenido %}
+<div class="encabezado-pagina">
+  <div>
+    <h1>Historial de inspecciones</h1>
+    <p>Consulta los hallazgos por tablero, su clasificación y la tendencia de temperatura máxima.</p>
+  </div>
+</div>
+
+<section class="resumen">
+  <div class="panel kpi"><span>Inspecciones</span><b id="k-total">—</b><small id="k-filtro">con los filtros actuales</small></div>
+  <div class="panel kpi"><span>Tableros</span><b id="k-tableros">—</b><small>registrados</small></div>
+  <div class="panel kpi"><span>Reparación inmediata</span><b id="k-criticos" style="color:var(--peligro)">—</b><small>hallazgos ΔT &gt; umbral</small></div>
+  <div class="panel kpi"><span>T máx. registrada</span><b id="k-tmax">—</b><small id="k-tmax-tablero">—</small></div>
+</section>
+
+<article class="panel" style="margin-bottom:16px">
+  <div class="panel-cuerpo filtros">
+    <div class="campo"><label for="f-tablero">Tablero</label><select id="f-tablero"><option value="">Todos</option></select></div>
+    <div class="campo"><label for="f-nivel">Clasificación</label>
+      <select id="f-nivel">
+        <option value="">Todas</option>
+        <option value="0">Sin anomalía</option>
+        <option value="1">Posible deficiencia</option>
+        <option value="2">Reparar en próxima oportunidad</option>
+        <option value="3">Reparación inmediata</option>
+      </select>
+    </div>
+    <div class="campo"><label for="f-desde">Desde</label><input type="date" id="f-desde"></div>
+    <div class="campo"><label for="f-hasta">Hasta</label><input type="date" id="f-hasta"></div>
+    <button type="button" class="btn" id="btn-limpiar">Limpiar</button>
+  </div>
+</article>
+
+<article class="panel" style="margin-bottom:16px">
+  <header class="panel-cab"><h2>Tendencia de temperatura máxima por tablero</h2><span class="der etiqueta" id="leyenda-grafica"></span></header>
+  <div class="panel-cuerpo"><div class="contenedor-grafica"><canvas id="grafica"></canvas></div></div>
+</article>
+
+<article class="panel">
+  <header class="panel-cab"><h2>Inspecciones</h2></header>
+  <div class="tabla-envoltura">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Imágenes</th><th>Folio</th><th>Fecha</th><th>Tablero</th>
+          <th class="num">T máx</th><th class="num ocultar-movil">T ref.</th><th class="num">ΔT</th>
+          <th>Clasificación</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="cuerpo-tabla"><tr><td colspan="9" class="vacio">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+</article>
+
+<div class="modal" id="modal" hidden>
+  <article class="panel modal-caja">
+    <header class="panel-cab"><h2 id="modal-titulo">Detalle</h2><button type="button" class="btn btn-chico cerrar-modal" id="modal-cerrar">Cerrar ✕</button></header>
+    <div class="panel-cuerpo" id="modal-cuerpo"></div>
+  </article>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>window.Chart || document.write('<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"><\/script>');</script>
+<script src="{{ url_for('static', filename='js/historial.js') }}?v={{ version }}"></script>
+{% endblock %}
