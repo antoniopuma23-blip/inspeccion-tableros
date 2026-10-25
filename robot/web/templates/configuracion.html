@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block titulo %}Configuración{% endblock %}
+{% block contenido %}
+<div class="encabezado-pagina">
+  <div>
+    <h1>Configuración</h1>
+    <p>Los cambios se aplican de inmediato y se guardan en <code>data/config_usuario.yaml</code> (config.yaml no se modifica).</p>
+  </div>
+</div>
+
+<form id="form-config" class="config-rejilla" autocomplete="off">
+  <!-- Movimiento y seguridad -->
+  <article class="panel">
+    <header class="panel-cab"><h2>Movimiento y seguridad</h2></header>
+    <div class="panel-cuerpo">
+      <div class="campo">
+        <label for="vmax">Velocidad máxima: <b id="vmax-txt">—</b></label>
+        <input type="range" id="vmax" data-clave="traccion.velocidad_maxima_m_s" min="0.05" max="1" step="0.01">
+        <span class="ayuda">ISO 3691-4 recomienda ≤ 0.3 m/s cerca de personas.</span>
+        <div class="alerta peligro" id="alerta-vmax" hidden>Velocidad superior a 0.3 m/s: úsala solo en un área despejada y sin personas.</div>
+      </div>
+      <div class="fila">
+        <div class="campo"><label for="acel">Aceleración (m/s²)</label><input type="number" id="acel" data-clave="traccion.aceleracion_m_s2" min="0.05" max="3" step="0.05"></div>
+        <div class="campo"><label for="giro">Factor de giro</label><input type="number" id="giro" data-clave="traccion.velocidad_giro_factor" min="0.1" max="1" step="0.05"></div>
+      </div>
+      <div class="fila">
+        <div class="campo">
+          <label for="diam">Diámetro de rueda motriz (mm)</label>
+          <input type="number" id="diam" data-clave="traccion.diametro_rueda_m" data-escala="1000" min="10" max="300" step="0.5">
+        </div>
+        <div class="campo"><label for="sep">Separación de orugas (mm)</label><input type="number" id="sep" data-clave="traccion.separacion_orugas_m" data-escala="1000" min="50" max="1000" step="1"></div>
+      </div>
+      <p class="ayuda" style="margin-top:-4px">¿No conoces el diámetro? Calíbralo con <code>python scripts/pruebas/calibrar_diametro.py</code>: el robot avanza, mides la distancia con cinta métrica y el script calcula el diámetro efectivo.</p>
+      <label class="interruptor" style="margin:6px 0 12px"><input type="checkbox" data-clave="traccion.lazo_cerrado"><span class="pista"></span>Control de velocidad en lazo cerrado (PI con encoders)</label>
+      <dl class="datos-lista">
+        <dt>Watchdog de comandos</dt><dd id="d-watchdog">—</dd>
+        <dt>Velocidad libre estimada</dt><dd id="d-vlibre">—</dd>
+        <dt>Cuentas por vuelta</dt><dd id="d-cpr">—</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- Análisis térmico -->
+  <article class="panel">
+    <header class="panel-cab"><h2>Análisis térmico</h2></header>
+    <div class="panel-cuerpo">
+      <div class="fila">
+        <div class="campo">
+          <label for="emis">Emisividad (ε)</label>
+          <input type="number" id="emis" data-clave="camara_termica.emisividad" min="0.1" max="1" step="0.01">
+        </div>
+        <div class="campo">
+          <label for="material">Material típico</label>
+          <select id="material">
+            <option value="">— elegir —</option>
+            <option value="0.95">Pintura / laca (0.95)</option>
+            <option value="0.95">Cinta aislante negra (0.95)</option>
+            <option value="0.92">Plástico / PVC (0.92)</option>
+            <option value="0.90">Baquelita (0.90)</option>
+            <option value="0.78">Cobre muy oxidado (0.78)</option>
+            <option value="0.30">Aluminio oxidado (0.30)</option>
+            <option value="0.10">Cobre pulido (0.10)</option>
+          </select>
+        </div>
+      </div>
+      <div class="alerta" id="alerta-emis" hidden>Emisividad baja: los metales brillantes reflejan radiación y la medición es poco confiable. Mide sobre aislamiento, pintura o cinta.</div>
+      <div class="campo"><label for="trefl">Temperatura reflejada (°C)</label><input type="number" id="trefl" data-clave="camara_termica.temp_reflejada_c" min="-20" max="80" step="0.5"></div>
+
+      <div class="etiqueta" style="margin:4px 0 6px">Umbrales ΔT (ANSI/NETA MTS)</div>
+      <div class="fila">
+        <div class="campo"><label for="u1"><span class="punto" style="--c:#f1c40f"></span>Posible (≥ °C)</label><input type="number" id="u1" data-clave="analisis.umbral_posible_c" min="0.1" max="100" step="0.5"></div>
+        <div class="campo"><label for="u2"><span class="punto" style="--c:#e67e22"></span>Reparar (≥ °C)</label><input type="number" id="u2" data-clave="analisis.umbral_reparar_c" min="0.1" max="100" step="0.5"></div>
+        <div class="campo"><label for="u3"><span class="punto" style="--c:#e74c3c"></span>Inmediata (&gt; °C)</label><input type="number" id="u3" data-clave="analisis.umbral_inmediata_c" min="0.1" max="200" step="0.5"></div>
+      </div>
+      <div class="fila">
+        <div class="campo">
+          <label for="ref">Referencia por defecto</label>
+          <select id="ref" data-clave="analisis.referencia_por_defecto">
+            <option value="mediana">Mediana del cuadro</option>
+            <option value="punto">Punto (clic)</option>
+            <option value="manual">Valor manual</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="paleta">Paleta de color</label>
+          <select id="paleta" data-clave="interfaz.paleta"></select>
+          <div class="paleta-muestra" id="muestra-paleta"></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <!-- Superposición -->
+  <article class="panel">
+    <header class="panel-cab"><h2>Alineación térmico / visible</h2></header>
+    <div class="panel-cuerpo">
+      <p class="ayuda" style="margin-top:0">Fracción del cuadro visible que cubre el sensor térmico (FOV 55°×35°). Pi Camera v2: 0.88 × 0.72.</p>
+      <div class="fila">
+        <div class="campo"><label for="ex">Escala horizontal</label><input type="number" id="ex" data-clave="superposicion.escala_x" min="0.2" max="2" step="0.01"></div>
+        <div class="campo"><label for="ey">Escala vertical</label><input type="number" id="ey" data-clave="superposicion.escala_y" min="0.2" max="2" step="0.01"></div>
+      </div>
+      <div class="fila">
+        <div class="campo"><label for="dx">Desplazamiento X</label><input type="number" id="dx" data-clave="superposicion.desplazamiento_x" min="-0.5" max="0.5" step="0.01"></div>
+        <div class="campo"><label for="dy">Desplazamiento Y</label><input type="number" id="dy" data-clave="superposicion.desplazamiento_y" min="-0.5" max="0.5" step="0.01"></div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ESP32 -->
+  <article class="panel">
+    <header class="panel-cab"><h2>Módulo ESP32-S3 (opcional)</h2><span class="der" id="estado-esp32"></span></header>
+    <div class="panel-cuerpo">
+      <label class="interruptor" style="margin-bottom:12px"><input type="checkbox" data-clave="esp32.habilitado"><span class="pista"></span>Habilitar comunicación UART con el ESP32</label>
+      <div class="campo"><label for="puerto">Puerto serie</label><input type="text" id="puerto" data-clave="esp32.puerto"></div>
+      <p class="ayuda">Protocolo JSON por línea a 115200 baud. El ESP32 puede reportar el voltaje de la batería (<code>{"t":"bateria","v":7.6}</code>) y un botón de paro físico (<code>{"t":"paro"}</code>). El robot funciona completo sin él.</p>
+    </div>
+  </article>
+
+  <!-- Diagnóstico -->
+  <article class="panel ancho-completo">
+    <header class="panel-cab"><h2>Diagnóstico de componentes</h2><button type="button" class="btn btn-chico der" id="btn-diag">Actualizar</button></header>
+    <div class="tabla-envoltura">
+      <table class="tabla">
+        <thead><tr><th>Componente</th><th>Estado</th><th>Driver</th><th>Detalle</th></tr></thead>
+        <tbody id="tabla-diag"></tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel ancho-completo">
+    <header class="panel-cab"><h2>Asignación de pines (config.yaml)</h2></header>
+    <div class="tabla-envoltura">
+      <table class="tabla">
+        <thead><tr><th>Elemento</th><th>Señal</th><th>GPIO (BCM)</th></tr></thead>
+        <tbody id="tabla-pines"></tbody>
+      </table>
+    </div>
+  </article>
+
+  <div class="barra-guardar ancho-completo">
+    <button type="button" class="btn btn-peligro" id="btn-restablecer">Restablecer valores de fábrica</button>
+    <button type="submit" class="btn btn-primario" id="btn-guardar">Guardar cambios</button>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/configuracion.js') }}?v={{ version }}"></script>
+{% endblock %}

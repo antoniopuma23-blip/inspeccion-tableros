@@ -1,0 +1,165 @@
+# =============================================================================
+#  Robot móvil de inspección térmica de tableros eléctricos
+#  Archivo de configuración principal
+# -----------------------------------------------------------------------------
+#  - Los pines usan numeración BCM (GPIOxx), no el número físico del conector.
+#  - Los cambios hechos desde la página "Configuración" de la interfaz web se
+#    guardan en data/config_usuario.yaml y se aplican ENCIMA de este archivo,
+#    por lo que este archivo (con sus comentarios) nunca se sobrescribe.
+#  - Para volver a los valores de fábrica basta con borrar
+#    data/config_usuario.yaml.
+# =============================================================================
+
+robot:
+  nombre: "Robot de Inspección Térmica RIT-01"
+
+servidor:
+  host: "0.0.0.0"          # Escucha en todas las interfaces (Wi-Fi y Ethernet)
+  puerto: 5000             # http://robot.local:5000
+
+datos:
+  directorio: "data"       # Base de datos SQLite, capturas y reportes PDF
+
+# -----------------------------------------------------------------------------
+#  Pines (BCM)
+# -----------------------------------------------------------------------------
+pines:
+  motor_izquierdo:
+    pwm: 18                # ENA  -> PWM por hardware (canal PWM0)
+    in1: 23                # IN1  -> dirección
+    in2: 24                # IN2  -> dirección
+  motor_derecho:
+    pwm: 13                # ENB  -> PWM por hardware (canal PWM1)
+    in1: 27                # IN3  -> dirección
+    in2: 22                # IN4  -> dirección
+  encoder_izquierdo:
+    a: 17
+    b: 16
+  encoder_derecho:
+    a: 5
+    b: 6
+  i2c:                     # Bus I2C-1 (fijo en hardware, solo informativo)
+    sda: 2
+    scl: 3
+  uart_esp32:              # UART0 (/dev/serial0), solo si el ESP32 se habilita
+    tx: 14
+    rx: 15
+
+# -----------------------------------------------------------------------------
+#  Motores DC + driver L298N
+# -----------------------------------------------------------------------------
+motores:
+  pwm_frecuencia_hz: 2000  # El L298N conmuta lento; 1-5 kHz es un buen rango
+  rpm_nominales: 330       # rpm del eje de salida a voltaje nominal
+  duty_minimo: 0.22        # Zona muerta: por debajo de este duty el motor no gira
+  invertir_izquierdo: false
+  invertir_derecho: false
+
+# -----------------------------------------------------------------------------
+#  Tracción por orugas (skid steering)
+# -----------------------------------------------------------------------------
+traccion:
+  # Diámetro de la rueda motriz (sprocket) que mueve la oruga, en metros.
+  # Es VARIABLE: si no se conoce, calibrar con
+  #     python scripts/pruebas/calibrar_diametro.py
+  # o ajustarlo desde la página "Configuración".
+  diametro_rueda_m: 0.040
+  separacion_orugas_m: 0.18      # Distancia entre los centros de las orugas
+  velocidad_maxima_m_s: 0.30     # Límite de velocidad (ISO 3691-4: 0.3 m/s)
+  aceleracion_m_s2: 0.40         # Rampa de aceleración/desaceleración suave
+  velocidad_giro_factor: 0.6     # Fracción de la velocidad máx. usada al girar
+  lazo_cerrado: true             # Control PI de velocidad con los encoders
+  kp: 0.6
+  ki: 2.5
+
+encoders:
+  pulsos_por_vuelta_motor: 11    # Pulsos por canal en el eje del motor
+  relacion_reduccion: 30         # Caja reductora (330 rpm típicamente 1:30)
+  # 4 = cuadratura completa (canales A y B, máxima resolución)
+  # 1 = solo flancos de subida de A (menos carga de CPU; el sentido se toma
+  #     del comando aplicado al motor)
+  modo_cuadratura: 4
+  filtro_glitch_us: 20           # Filtro anti-rebote de pigpio
+  invertir_izquierdo: false      # Invierte el signo si el conteo sale al revés
+  invertir_derecho: false
+
+# -----------------------------------------------------------------------------
+#  Seguridad
+# -----------------------------------------------------------------------------
+seguridad:
+  watchdog_ms: 500               # Sin comando de movimiento en 500 ms -> paro
+  periodo_control_ms: 20         # Lazo de control a 50 Hz
+
+# -----------------------------------------------------------------------------
+#  Cámara térmica MLX90640 (32x24, FOV 55°x35°)
+# -----------------------------------------------------------------------------
+camara_termica:
+  habilitada: true
+  frecuencia_hz: 4               # Cuadros completos por segundo deseados
+  i2c_frecuencia_hz: 400000      # Requiere dtparam=i2c_arm_baudrate=400000
+  emisividad: 0.95               # Superficies pintadas/oxidadas ~0.95
+  temp_reflejada_c: 25.0         # Temperatura aparente reflejada (ambiente)
+  rotar_180: false               # Si el sensor está montado de cabeza
+  espejo_horizontal: false
+
+# -----------------------------------------------------------------------------
+#  Cámara visible (Pi Camera con picamera2 o webcam USB con OpenCV)
+# -----------------------------------------------------------------------------
+camara_visible:
+  tipo: "auto"                   # auto | picamera2 | usb
+  indice_usb: 0
+  ancho: 640
+  alto: 480
+  fps: 12
+  calidad_jpeg: 70
+
+# Alineación del térmico sobre el visible (fracción del cuadro visible que
+# cubre el térmico). Pi Camera v2: FOV 62.2°x48.8° -> 55/62.2 ≈ 0.88 y
+# 35/48.8 ≈ 0.72. Ajustar si se usa otra cámara.
+superposicion:
+  escala_x: 0.88
+  escala_y: 0.72
+  desplazamiento_x: 0.0          # Fracción del ancho (-0.5 a 0.5)
+  desplazamiento_y: 0.0          # Fracción del alto  (-0.5 a 0.5)
+
+# -----------------------------------------------------------------------------
+#  Análisis térmico (criterio ΔT de ANSI/NETA MTS, componentes similares)
+# -----------------------------------------------------------------------------
+analisis:
+  umbral_posible_c: 1.0          # ΔT >= 1 °C          -> Posible deficiencia
+  umbral_reparar_c: 4.0          # ΔT >= 4 °C          -> Reparar en próxima oportunidad
+  umbral_inmediata_c: 15.0       # ΔT >  15 °C         -> Reparación inmediata
+  referencia_por_defecto: "mediana"   # mediana | punto | manual
+
+interfaz:
+  paleta: "ironbow"              # ironbow | arcoiris | grises | lava
+
+# -----------------------------------------------------------------------------
+#  Batería LiPo 2S (7.4 V). Solo hay lectura si el ESP32 la reporta.
+# -----------------------------------------------------------------------------
+bateria:
+  celdas: 2
+
+# -----------------------------------------------------------------------------
+#  ESP32-S3 opcional por UART (JSON por línea). DESACTIVADO por defecto:
+#  el robot funciona completo sin él.
+# -----------------------------------------------------------------------------
+esp32:
+  habilitado: false
+  puerto: "/dev/serial0"
+  baudios: 115200
+
+# -----------------------------------------------------------------------------
+#  Reporte PDF
+# -----------------------------------------------------------------------------
+reporte:
+  empresa: "Laboratorio de Mecatrónica"
+  titulo: "Reporte de Inspección Termográfica"
+  responsable: "Inspector"
+  logo: ""                       # Ruta a un PNG/JPG; vacío = logo por defecto
+
+# -----------------------------------------------------------------------------
+#  Modo simulación (se activa con la variable de entorno ROBOT_SIM=1)
+# -----------------------------------------------------------------------------
+simulacion:
+  bateria_simulada: true         # Muestra una batería simulada para la demo

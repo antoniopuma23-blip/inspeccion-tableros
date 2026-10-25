@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block titulo %}Inspección en vivo{% endblock %}
+{% block contenido %}
+<div class="encabezado-pagina">
+  <div>
+    <h1>Inspección en vivo</h1>
+    <p>Video visible y termografía en tiempo real. Conduce el robot con el joystick o con el teclado.</p>
+  </div>
+  <a class="btn btn-primario" href="/captura"><svg class="ico"><use href="#i-camara"/></svg>Capturar hallazgo</a>
+</div>
+
+<section class="rejilla rejilla-2">
+  <article class="panel">
+    <header class="panel-cab">
+      <h2>Cámara visible</h2>
+      <span class="indicador-vivo">EN VIVO</span>
+      <div class="der">
+        <label class="interruptor"><input type="checkbox" id="chk-superponer"><span class="pista"></span>Superponer térmico</label>
+        <label class="control-compacto" id="ctl-opacidad">Opacidad <input type="range" id="rng-opacidad" min="10" max="90" value="55"></label>
+      </div>
+    </header>
+    <div class="marco" id="marco-visible">
+      <img id="video" src="/video.mjpg" alt="Video de la cámara visible">
+      <canvas class="superpuesto" id="cv-superpuesto" hidden></canvas>
+    </div>
+  </article>
+
+  <article class="panel">
+    <header class="panel-cab">
+      <h2>Mapa térmico</h2>
+      <span class="indicador-vivo" id="fps-termico">— Hz</span>
+      <div class="der">
+        <label class="control-compacto">Paleta <select id="sel-paleta"></select></label>
+        <label class="interruptor" title="Fija el rango de la escala de color"><input type="checkbox" id="chk-rango"><span class="pista"></span>Rango fijo</label>
+      </div>
+    </header>
+    <div class="marco-termico">
+      <div class="marco"><canvas class="lienzo" id="cv-termico"></canvas><span class="esquina" id="sin-termico" hidden>Sin datos del sensor térmico</span></div>
+      <canvas class="escala-color" id="cv-escala"></canvas>
+    </div>
+    <div class="lecturas">
+      <div class="lectura max"><span>Máxima</span><b id="t-max">—</b></div>
+      <div class="lectura min"><span>Mínima</span><b id="t-min">—</b></div>
+      <div class="lectura"><span>Mediana</span><b id="t-med">—</b></div>
+      <div class="lectura cursor"><span>Cursor</span><b id="t-cursor">—</b></div>
+    </div>
+    <div class="panel-cuerpo fila" id="fila-rango" hidden>
+      <div class="campo"><label for="rango-min">Mín. escala (°C)</label><input type="number" id="rango-min" step="0.5" value="20"></div>
+      <div class="campo"><label for="rango-max">Máx. escala (°C)</label><input type="number" id="rango-max" step="0.5" value="45"></div>
+    </div>
+  </article>
+</section>
+
+<section class="rejilla rejilla-control">
+  <article class="panel">
+    <header class="panel-cab"><h2>Control manual</h2><span class="der" id="estado-motores"></span></header>
+    <div class="panel-cuerpo" id="panel-joystick"></div>
+  </article>
+
+  <article class="panel">
+    <header class="panel-cab"><h2>Telemetría y diagnóstico rápido</h2></header>
+    <div class="panel-cuerpo rejilla rejilla-2">
+      <div>
+        <div class="etiqueta" style="margin-bottom:6px">Velocidad de orugas (encoders)</div>
+        <div class="medidor"><span>Izquierda</span><span class="barra"><i id="bar-izq"></i></span><b id="val-izq">0.00 m/s</b></div>
+        <div class="medidor"><span>Derecha</span><span class="barra"><i id="bar-der"></i></span><b id="val-der">0.00 m/s</b></div>
+        <div class="medidor"><span>Ref. izq.</span><span class="barra"><i id="bar-ref-izq"></i></span><b id="val-ref-izq">0.00 m/s</b></div>
+        <div class="medidor"><span>Ref. der.</span><span class="barra"><i id="bar-ref-der"></i></span><b id="val-ref-der">0.00 m/s</b></div>
+        <dl class="datos-lista" style="margin-top:12px">
+          <dt>Velocidad máxima</dt><dd id="d-vmax">—</dd>
+          <dt>Control</dt><dd id="d-lazo">—</dd>
+          <dt>PWM izq. / der.</dt><dd id="d-duty">—</dd>
+          <dt>Último paro</dt><dd id="d-paro">—</dd>
+        </dl>
+      </div>
+      <div>
+        <div class="etiqueta" style="margin-bottom:6px">Evaluación preliminar del cuadro (referencia: mediana)</div>
+        <div class="tarjeta-dt" id="tarjeta-dt">
+          <div class="dt-fila"><span class="dt-etq">ΔT = máx − mediana</span><span id="dt-clasif"></span></div>
+          <div class="dt-valor" id="dt-valor">—</div>
+        </div>
+        <table class="tabla-criterio" id="tabla-criterio"></table>
+        <p class="ayuda-teclado" style="text-align:left;margin-top:10px">Para registrar el hallazgo con nombre del tablero, notas y referencia elegida, usa la página <a href="/captura">Captura</a>.</p>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/termico.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='js/joystick.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='js/en_vivo.js') }}?v={{ version }}"></script>
+{% endblock %}

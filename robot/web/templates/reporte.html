@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}Reporte PDF{% endblock %}
+{% block contenido %}
+<div class="encabezado-pagina">
+  <div>
+    <h1>Reporte de inspección</h1>
+    <p>Genera el PDF de cada inspección con imágenes, temperaturas, ΔT, clasificación, recomendación y marco normativo (NOM-029-STPS, NFPA 70B).</p>
+  </div>
+</div>
+
+<section class="rejilla rejilla-captura">
+  <article class="panel">
+    <header class="panel-cab">
+      <h2>Vista previa</h2>
+      <div class="der acciones" id="acciones-reporte" hidden>
+        <button type="button" class="btn btn-primario" id="btn-generar">Generar PDF</button>
+        <a class="btn" id="btn-descargar" href="#">Descargar</a>
+      </div>
+    </header>
+    <div class="panel-cuerpo" id="vista-previa">
+      <p class="vacio">Selecciona una inspección de la lista.</p>
+    </div>
+  </article>
+
+  <div class="rejilla" style="align-content:start">
+    <article class="panel">
+      <header class="panel-cab"><h2>Inspecciones</h2></header>
+      <div class="panel-cuerpo" style="padding-bottom:6px"><input type="text" id="buscar" placeholder="Buscar por tablero o folio…"></div>
+      <div class="lista-inspecciones" id="lista"></div>
+    </article>
+
+    <article class="panel">
+      <header class="panel-cab"><h2>Encabezado del reporte</h2></header>
+      <form class="panel-cuerpo" id="form-encabezado">
+        <div class="fila" style="align-items:center;margin-bottom:12px">
+          <img class="logo-vista" id="logo-vista" src="/api/logo" alt="Logo">
+          <div class="campo" style="margin:0">
+            <label for="logo">Logo (PNG o JPG)</label>
+            <input type="file" id="logo" accept="image/png,image/jpeg">
+          </div>
+        </div>
+        <div class="campo"><label for="r-empresa">Empresa / institución</label><input type="text" id="r-empresa" maxlength="80"></div>
+        <div class="campo"><label for="r-titulo">Título del reporte</label><input type="text" id="r-titulo" maxlength="100"></div>
+        <div class="campo"><label for="r-responsable">Responsable de la inspección</label><input type="text" id="r-responsable" maxlength="80"></div>
+        <button type="submit" class="btn">Guardar encabezado</button>
+      </form>
+    </article>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/reporte.js') }}?v={{ version }}"></script>
+{% endblock %}
